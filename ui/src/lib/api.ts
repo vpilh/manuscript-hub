@@ -133,6 +133,6 @@ const desktopApi = {
 };
 
 /** In a dev browser (`npm run dev`) the UI runs on an in-memory mock; production builds never include it. */
-export const usingMock = !inDesktopShell() && import.meta.env.DEV;
+export const usingMock = import.meta.env.DEV && !inDesktopShell();
 
 export const api: Api = usingMock ? (await import("./mock")).mockApi : desktopApi;
