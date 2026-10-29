@@ -1,123 +1,196 @@
-import { useEffect, useState } from "react";
+import { Inbox, Library, Lock } from "lucide-react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 
-import { api, inDesktopShell, type AppInfo, type ProposedEvent } from "./lib/api";
-import { confidenceLabel, daysUntil, isoDate, statusLabel } from "./lib/format";
+import { Manuscripts } from "./components/Manuscripts";
+import { ReviewQueue } from "./components/ReviewQueue";
+import {
+  api,
+  inDesktopShell,
+  usingMock,
+  type AppInfo,
+  type ManuscriptSummary,
+  type QueueItem,
+  type ScanSummary,
+} from "./lib/api";
+
+type View = "review" | "manuscripts";
+
+// Deep links: #manuscripts opens the ledger, #manuscripts/<id> also opens that manuscript.
+const initialView = (): View =>
+  window.location.hash.startsWith("#manuscripts") ? "manuscripts" : "review";
+const initialOpenId = (): number | null => {
+  const id = Number(window.location.hash.split("/")[1]);
+  return Number.isInteger(id) && id > 0 ? id : null;
+};
 
 export function App() {
+  const live = inDesktopShell() || usingMock;
   const [info, setInfo] = useState<AppInfo | null>(null);
-  const [events, setEvents] = useState<ProposedEvent[] | null>(null);
+  const [queue, setQueue] = useState<QueueItem[]>([]);
+  const [manuscripts, setManuscripts] = useState<ManuscriptSummary[]>([]);
+  const [view, setView] = useState<View>(initialView);
   const [error, setError] = useState<string | null>(null);
+  const [scan, setScan] = useState<ScanSummary | null>(null);
   const [scanning, setScanning] = useState(false);
-  const desktop = inDesktopShell();
 
-  useEffect(() => {
-    if (desktop) api.appInfo().then(setInfo, (e) => setError(String(e)));
-  }, [desktop]);
-
-  async function scan() {
-    setScanning(true);
-    setError(null);
+  const refresh = useCallback(async () => {
     try {
-      setEvents(await api.scanDemoMailbox());
+      const [q, m] = await Promise.all([api.reviewQueue(), api.manuscripts()]);
+      setQueue(q);
+      setManuscripts(m);
     } catch (e) {
       setError(String(e));
-    } finally {
-      setScanning(false);
     }
+  }, []);
+
+  useEffect(() => {
+    if (!live) return;
+    api.appInfo().then(
+      (i) => {
+        setInfo(i);
+        if (!i.storage_error) void refresh();
+      },
+      (e) => setError(String(e)),
+    );
+  }, [live, refresh]);
+
+  const show = (next: View) => {
+    setView(next);
+    history.replaceState(null, "", next === "manuscripts" ? "#manuscripts" : "#");
+  };
+
+  /** Runs an action, then reloads the review list and manuscripts. */
+  const act = useCallback(
+    async (action: () => Promise<unknown>) => {
+      setError(null);
+      try {
+        await action();
+      } catch (e) {
+        setError(String(e));
+      }
+      await refresh();
+    },
+    [refresh],
+  );
+
+  async function scanDemo() {
+    setScanning(true);
+    await act(async () => setScan(await api.scanDemoMailbox()));
+    setScanning(false);
   }
 
-  return (
-    <main className="shell">
-      <header className="masthead">
-        <div>
-          <h1>Manuscript Hub</h1>
-          <p className="muted">
-            Local-first submission tracking. Mail is read on this computer and never leaves it.
-          </p>
-        </div>
-        {info && (
-          <span className="muted small">
-            v{info.version} · parser {info.parser_version}
-          </span>
-        )}
-      </header>
+  const storageError = info?.storage_error ?? null;
 
-      {!desktop ? (
-        <p className="notice">
-          This is the browser preview. Run <code>npm run tauri dev</code> to start the desktop app.
-        </p>
-      ) : (
-        <section>
-          <div className="toolbar">
-            <h2>Review queue</h2>
-            <button onClick={scan} disabled={scanning}>
+  return (
+    <div className="app">
+      <aside className="rail">
+        <p className="wordmark">Manuscript Hub</p>
+        {live && (
+          <nav aria-label="Views">
+            <RailLink active={view === "review"} onClick={() => show("review")} count={queue.length}>
+              <Inbox aria-hidden="true" size={18} />
+              Review
+            </RailLink>
+            <RailLink
+              active={view === "manuscripts"}
+              onClick={() => show("manuscripts")}
+              count={manuscripts.length}
+            >
+              <Library aria-hidden="true" size={18} />
+              Manuscripts
+            </RailLink>
+          </nav>
+        )}
+        <div className="rail-foot">
+          {live && (
+            <button className="secondary" onClick={scanDemo} disabled={scanning || !!storageError}>
               {scanning ? "Scanning…" : "Scan demo mailbox"}
             </button>
-          </div>
-          <p className="muted small">
-            The demo mailbox is synthetic. Connecting real accounts arrives in later releases.
-          </p>
-          {error && <p className="notice error">{error}</p>}
-          {events && events.length === 0 && <p className="muted">No journal mail found.</p>}
-          {events && events.length > 0 && (
-            <ul className="events">
-              {events.map((event) => (
-                <EventCard key={event.source.message_id} event={event} />
-              ))}
-            </ul>
           )}
-        </section>
-      )}
-    </main>
+          <p className="privacy">
+            <Lock aria-hidden="true" size={14} />
+            Mail is read on this computer and stays here.
+          </p>
+          {info && (
+            <p className="version">
+              Version {info.version}, parser {info.parser_version}
+              {usingMock && <> (browser preview with sample data)</>}
+            </p>
+          )}
+        </div>
+      </aside>
+
+      <main className="page">
+        {!live ? (
+          <section>
+            <h1>Open the desktop app</h1>
+            <p className="lede">
+              This page is the interface of the desktop app and needs it to run. Start it with{" "}
+              <code>npm run tauri dev</code>.
+            </p>
+          </section>
+        ) : (
+          <section aria-labelledby="view-title">
+            <h1 id="view-title">{view === "review" ? "Review" : "Manuscripts"}</h1>
+            <p className="lede">
+              {view === "review"
+                ? "Messages that look like journal correspondence. Check what was read, then add it to a manuscript or set it aside."
+                : "Everything you have confirmed, with the current status and the next deadline."}
+            </p>
+
+            {storageError && (
+              <p className="notice error" role="alert">
+                The local database could not be opened. {storageError}
+              </p>
+            )}
+            <div role="status" className="status-line">
+              {scan &&
+                `Scanned ${scan.messages} sample messages: ${scan.proposed} new to review, ${scan.already_seen} seen before, ${scan.not_journal_mail} not journal mail.`}
+            </div>
+            {error && (
+              <p className="notice error" role="alert">
+                {error}
+              </p>
+            )}
+
+            {view === "review" ? (
+              <ReviewQueue
+                items={queue}
+                manuscripts={manuscripts}
+                scanning={scanning}
+                onScan={scanDemo}
+                onDecide={(eventId, decision) => act(() => api.reviewEvent(eventId, decision))}
+              />
+            ) : (
+              <Manuscripts
+                manuscripts={manuscripts}
+                initialOpenId={initialOpenId()}
+                onOpenReview={() => show("review")}
+              />
+            )}
+          </section>
+        )}
+      </main>
+    </div>
   );
 }
 
-function EventCard({ event }: { event: ProposedEvent }) {
-  const { status, deadline, manuscript_id, journal, requested_action, uncertainty } = event;
-  const days = deadline ? daysUntil(deadline.value, new Date()) : null;
-
+function RailLink(props: {
+  active: boolean;
+  onClick: () => void;
+  count: number;
+  children: ReactNode;
+}) {
   return (
-    <li className="event">
-      <div className="event-head">
-        <span className={`status ${status ? status.value : "unknown"}`}>
-          {status ? statusLabel(status.value) : "Unclassified"}
-        </span>
-        <span className="mono">{manuscript_id?.value ?? "No manuscript ID"}</span>
-      </div>
-      <p className="journal">{journal?.value ?? "Unknown journal"}</p>
-      <dl>
-        {deadline && (
-          <>
-            <dt>Deadline</dt>
-            <dd>
-              {isoDate(deadline.value)}
-              {days !== null && <span className="muted"> · {days >= 0 ? `in ${days} days` : `${-days} days ago`}</span>}
-              <span className={`confidence ${confidenceLabel(deadline.confidence)}`}>
-                {confidenceLabel(deadline.confidence)}
-              </span>
-            </dd>
-          </>
-        )}
-        {requested_action && (
-          <>
-            <dt>Action</dt>
-            <dd>{requested_action.value}</dd>
-          </>
-        )}
-        {status && (
-          <>
-            <dt>Evidence</dt>
-            <dd>“{status.original}”</dd>
-          </>
-        )}
-      </dl>
-      {uncertainty.length > 0 && (
-        <ul className="uncertainty">
-          {uncertainty.map((reason) => (
-            <li key={reason}>{reason}</li>
-          ))}
-        </ul>
-      )}
-    </li>
+    <button
+      className="rail-link"
+      aria-current={props.active ? "page" : undefined}
+      onClick={props.onClick}
+    >
+      <span className="rail-label">{props.children}</span>
+      <span className="rail-count" aria-label={`${props.count} items`}>
+        {props.count}
+      </span>
+    </button>
   );
 }
