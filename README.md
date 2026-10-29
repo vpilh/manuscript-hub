@@ -6,7 +6,7 @@ Manuscript Hub is a desktop app that keeps track of your journal submissions by 
 - **Read-only.** The app requests read-only access and never sends, moves, deletes, labels or marks mail as read.
 - **You decide.** Uncertain matches go to a review queue. A confirmed decision or deadline is never overwritten silently.
 
-> **Status: early development (pre-alpha).** The app currently runs on a built-in *synthetic* demo mailbox. Connecting real accounts is planned. See the [implementation plan](docs/IMPLEMENTATION_PLAN.md).
+> **Status: early development (pre-alpha).** The app runs on a built-in *synthetic* demo mailbox, with a working review queue and encrypted local storage. Connecting real accounts is next: GroupWise and Gmail over IMAP, then Microsoft 365. See the [implementation plan](docs/IMPLEMENTATION_PLAN.md).
 
 ## Install (researchers)
 
@@ -51,7 +51,7 @@ No mailbox account or cloud credentials are needed for development.
 crates/mh-core/        domain model (statuses, events, provenance)
 crates/mh-parser/      detection and extraction (English + German)
 crates/mh-connectors/  read-only mail providers, IMAP command guard, mock provider
-crates/mh-store/       encrypted local storage (schema draft)
+crates/mh-store/       encrypted local storage, matching, review queue
 src-tauri/             desktop shell
 ui/                    React UI
 fixtures/synthetic/    synthetic test emails

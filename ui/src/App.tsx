@@ -1,123 +1,148 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 
-import { api, inDesktopShell, type AppInfo, type ProposedEvent } from "./lib/api";
-import { confidenceLabel, daysUntil, isoDate, statusLabel } from "./lib/format";
+import { Manuscripts } from "./components/Manuscripts";
+import { ReviewQueue } from "./components/ReviewQueue";
+import {
+  api,
+  inDesktopShell,
+  type AppInfo,
+  type ManuscriptSummary,
+  type QueueItem,
+  type ScanSummary,
+} from "./lib/api";
+
+type Tab = "review" | "manuscripts";
 
 export function App() {
-  const [info, setInfo] = useState<AppInfo | null>(null);
-  const [events, setEvents] = useState<ProposedEvent[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [scanning, setScanning] = useState(false);
   const desktop = inDesktopShell();
+  const [info, setInfo] = useState<AppInfo | null>(null);
+  const [queue, setQueue] = useState<QueueItem[]>([]);
+  const [manuscripts, setManuscripts] = useState<ManuscriptSummary[]>([]);
+  const [tab, setTab] = useState<Tab>("review");
+  const [error, setError] = useState<string | null>(null);
+  const [scan, setScan] = useState<ScanSummary | null>(null);
+  const [scanning, setScanning] = useState(false);
 
-  useEffect(() => {
-    if (desktop) api.appInfo().then(setInfo, (e) => setError(String(e)));
-  }, [desktop]);
-
-  async function scan() {
-    setScanning(true);
-    setError(null);
+  const refresh = useCallback(async () => {
     try {
-      setEvents(await api.scanDemoMailbox());
+      const [q, m] = await Promise.all([api.reviewQueue(), api.manuscripts()]);
+      setQueue(q);
+      setManuscripts(m);
     } catch (e) {
       setError(String(e));
-    } finally {
-      setScanning(false);
     }
+  }, []);
+
+  useEffect(() => {
+    if (!desktop) return;
+    api.appInfo().then((i) => {
+      setInfo(i);
+      if (!i.storage_error) void refresh();
+    }, (e) => setError(String(e)));
+  }, [desktop, refresh]);
+
+  /** Runs an action, then reloads queue and manuscripts. */
+  const act = useCallback(
+    async (action: () => Promise<unknown>) => {
+      setError(null);
+      try {
+        await action();
+      } catch (e) {
+        setError(String(e));
+      }
+      await refresh();
+    },
+    [refresh],
+  );
+
+  async function scanDemo() {
+    setScanning(true);
+    await act(async () => setScan(await api.scanDemoMailbox()));
+    setScanning(false);
+  }
+
+  if (!desktop) {
+    return (
+      <main className="shell">
+        <Masthead info={null} />
+        <p className="notice">
+          This is the browser preview. Run <code>npm run tauri dev</code> to start the desktop app.
+        </p>
+      </main>
+    );
   }
 
   return (
     <main className="shell">
-      <header className="masthead">
-        <div>
-          <h1>Manuscript Hub</h1>
-          <p className="muted">
-            Local-first submission tracking. Mail is read on this computer and never leaves it.
-          </p>
-        </div>
-        {info && (
-          <span className="muted small">
-            v{info.version} · parser {info.parser_version}
-          </span>
-        )}
-      </header>
+      <Masthead info={info} />
 
-      {!desktop ? (
-        <p className="notice">
-          This is the browser preview. Run <code>npm run tauri dev</code> to start the desktop app.
+      {info?.storage_error && (
+        <p className="notice error">
+          The local database could not be opened: {info.storage_error}
         </p>
+      )}
+
+      <div className="toolbar">
+        <nav className="tabs" aria-label="Views">
+          <TabButton active={tab === "review"} onClick={() => setTab("review")}>
+            Review <span className="count">{queue.length}</span>
+          </TabButton>
+          <TabButton active={tab === "manuscripts"} onClick={() => setTab("manuscripts")}>
+            Manuscripts <span className="count">{manuscripts.length}</span>
+          </TabButton>
+        </nav>
+        <button onClick={scanDemo} disabled={scanning || !!info?.storage_error}>
+          {scanning ? "Scanning…" : "Scan demo mailbox"}
+        </button>
+      </div>
+
+      {scan && (
+        <p className="muted small">
+          Scanned {scan.messages} synthetic messages: {scan.proposed} new for review,{" "}
+          {scan.already_seen} already seen, {scan.not_journal_mail} not journal mail.
+        </p>
+      )}
+      {error && <p className="notice error">{error}</p>}
+
+      {tab === "review" ? (
+        <ReviewQueue
+          items={queue}
+          manuscripts={manuscripts}
+          onDecide={(eventId, decision) => act(() => api.reviewEvent(eventId, decision))}
+        />
       ) : (
-        <section>
-          <div className="toolbar">
-            <h2>Review queue</h2>
-            <button onClick={scan} disabled={scanning}>
-              {scanning ? "Scanning…" : "Scan demo mailbox"}
-            </button>
-          </div>
-          <p className="muted small">
-            The demo mailbox is synthetic. Connecting real accounts arrives in later releases.
-          </p>
-          {error && <p className="notice error">{error}</p>}
-          {events && events.length === 0 && <p className="muted">No journal mail found.</p>}
-          {events && events.length > 0 && (
-            <ul className="events">
-              {events.map((event) => (
-                <EventCard key={event.source.message_id} event={event} />
-              ))}
-            </ul>
-          )}
-        </section>
+        <Manuscripts manuscripts={manuscripts} />
       )}
     </main>
   );
 }
 
-function EventCard({ event }: { event: ProposedEvent }) {
-  const { status, deadline, manuscript_id, journal, requested_action, uncertainty } = event;
-  const days = deadline ? daysUntil(deadline.value, new Date()) : null;
-
+function Masthead({ info }: { info: AppInfo | null }) {
   return (
-    <li className="event">
-      <div className="event-head">
-        <span className={`status ${status ? status.value : "unknown"}`}>
-          {status ? statusLabel(status.value) : "Unclassified"}
-        </span>
-        <span className="mono">{manuscript_id?.value ?? "No manuscript ID"}</span>
+    <header className="masthead">
+      <div>
+        <h1>Manuscript Hub</h1>
+        <p className="muted">
+          Local-first submission tracking. Mail is read on this computer and never leaves it.
+        </p>
       </div>
-      <p className="journal">{journal?.value ?? "Unknown journal"}</p>
-      <dl>
-        {deadline && (
-          <>
-            <dt>Deadline</dt>
-            <dd>
-              {isoDate(deadline.value)}
-              {days !== null && <span className="muted"> · {days >= 0 ? `in ${days} days` : `${-days} days ago`}</span>}
-              <span className={`confidence ${confidenceLabel(deadline.confidence)}`}>
-                {confidenceLabel(deadline.confidence)}
-              </span>
-            </dd>
-          </>
-        )}
-        {requested_action && (
-          <>
-            <dt>Action</dt>
-            <dd>{requested_action.value}</dd>
-          </>
-        )}
-        {status && (
-          <>
-            <dt>Evidence</dt>
-            <dd>“{status.original}”</dd>
-          </>
-        )}
-      </dl>
-      {uncertainty.length > 0 && (
-        <ul className="uncertainty">
-          {uncertainty.map((reason) => (
-            <li key={reason}>{reason}</li>
-          ))}
-        </ul>
+      {info && (
+        <span className="muted small">
+          v{info.version} · parser {info.parser_version}
+        </span>
       )}
-    </li>
+    </header>
+  );
+}
+
+function TabButton(props: { active: boolean; onClick: () => void; children: ReactNode }) {
+  return (
+    <button
+      className={`tab ${props.active ? "active" : ""}`}
+      aria-pressed={props.active}
+      onClick={props.onClick}
+    >
+      {props.children}
+    </button>
   );
 }

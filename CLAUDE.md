@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-Manuscript Hub: a local-first Tauri 2 desktop app that reads researchers' journal email read-only (Gmail, Microsoft 365, GroupWise IMAP), extracts editorial events, and shows a submission timeline the user confirms. Scope, work packages and requirement IDs (FR01–FR22, from the PRD) are in [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md). Component layout and invariants are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). The project is pre-alpha: only the mock provider exists, and `mh-store` is a schema draft.
+Manuscript Hub: a local-first Tauri 2 desktop app that reads researchers' journal email read-only (Gmail, Microsoft 365, GroupWise IMAP), extracts editorial events, and shows a submission timeline the user confirms. Scope, work packages and requirement IDs (FR01–FR22, from the PRD) are in [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md). Component layout and invariants are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). The project is pre-alpha: storage and the review queue work, but only the mock provider exists. Gmail will connect over IMAP with an app password, not OAuth, because Gmail API OAuth needs Google verification. One IMAP adapter serves GroupWise and Gmail.
 
 ## Commands
 
@@ -27,7 +27,10 @@ CI (`.github/workflows/ci.yml`) runs exactly the commands above, plus cargo-deny
 ## Architecture in brief
 
 - Logic lives in `crates/`. `src-tauri/src/main.rs` only registers IPC commands. The UI calls them via `ui/src/lib/api.ts`, whose TypeScript types mirror the serde output of `mh-core` types (snake_case enums; `Confidence` serializes as a bare number; `CalendarDate` as `{year, month, day}`). Change both sides together.
-- Pipeline: a `MailProvider` returns a `ChangeBatch` of `TransientMessage`, then `mh_parser::extract` produces a `ProposedEvent` (always `ReviewState::Proposed`), then the review queue (WP 1.5, not yet built) applies it.
+- Pipeline: a `MailProvider` returns a `ChangeBatch` of `TransientMessage`, then `mh_parser::extract` produces a `ProposedEvent` (always `ReviewState::Proposed`), then `Store::record_proposal` dedups it and suggests a manuscript, then the user's `Store::review` decision applies it.
+- `mh-store` keeps SQLite **in memory** and re-seals the whole file after every write (`Store::write` = transaction + commit + persist). Every mutating method must go through `Store::write`, or the change is lost on exit. Schema changes go in a new `migrations/NNNN_*.sql` appended to `MIGRATIONS`; `PRAGMA user_version` counts the applied ones. Never edit a migration that has shipped in a release.
+- A manuscript's current status, deadline and action are derived in queries (`current_state` in `review.rs`) from the newest confirmed events by message time. Don't add mutable "current status" columns; that would break the never-overwrite guarantee.
+- The database key lives in the OS keychain (`src-tauri/src/keychain.rs`, service `io.github.vpilh.manuscripthub`). The dev database is at `%APPDATA%\io.github.vpilh.manuscripthub\manuscript-hub.db` on Windows. To reset dev data, delete that file *and* the keychain entry together.
 - Status detection is a priority-ordered phrase table in `crates/mh-parser/src/status.rs`: decisions are checked before process updates, so "unable to accept" beats "accept". Insert new phrases with that ordering in mind.
 - The synthetic `.eml` files in `fixtures/synthetic/` are used twice: by `crates/mh-parser/tests/synthetic_fixtures.rs` (via `read_dir`) and by `include_str!` in `src-tauri/src/main.rs` for the demo scan. A new fixture should be added to both.
 

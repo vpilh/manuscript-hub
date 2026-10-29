@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { confidenceLabel, daysUntil, isoDate, statusLabel } from "./format";
+import { confidenceLabel, daysUntil, isoDate, parseIsoDate, statusLabel } from "./format";
 
 describe("format", () => {
   it("labels every status", () => {
@@ -21,5 +21,17 @@ describe("format", () => {
     expect(confidenceLabel(0.9)).toBe("high");
     expect(confidenceLabel(0.5)).toBe("medium");
     expect(confidenceLabel(0.4)).toBe("low");
+  });
+});
+
+describe("parseIsoDate", () => {
+  it("accepts valid dates from date inputs", () => {
+    expect(parseIsoDate("2026-11-12")).toEqual({ year: 2026, month: 11, day: 12 });
+  });
+
+  it("rejects empty and impossible dates", () => {
+    expect(parseIsoDate("")).toBeNull();
+    expect(parseIsoDate("2026-02-30")).toBeNull();
+    expect(parseIsoDate("12.11.2026")).toBeNull();
   });
 });

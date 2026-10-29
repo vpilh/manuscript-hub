@@ -121,34 +121,8 @@ button:disabled {
   color: var(--error-text);
 }
 
-.events {
-  list-style: none;
-  padding: 0;
-  margin: 16px 0 0;
-  display: grid;
-  gap: 12px;
-}
-
-.event {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 14px 16px;
-}
-
-.event-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-}
-
 .status {
   font-weight: 600;
-}
-
-.status.unknown {
-  color: var(--muted);
 }
 
 .journal {
@@ -198,4 +172,148 @@ dd {
   color: var(--warn-text);
   border-radius: 6px;
   font-size: 0.9rem;
+}
+
+.tabs {
+  display: flex;
+  gap: 4px;
+}
+
+.tab {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid transparent;
+}
+
+.tab.active {
+  background: var(--surface);
+  color: var(--text);
+  border-color: var(--border);
+}
+
+.count {
+  display: inline-block;
+  min-width: 1.6em;
+  margin-left: 4px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--border);
+  color: var(--text);
+  font-size: 0.8rem;
+  text-align: center;
+}
+
+.cards {
+  list-style: none;
+  padding: 0;
+  margin: 16px 0 0;
+  display: grid;
+  gap: 12px;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px 16px;
+}
+
+.card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.empty {
+  margin-top: 24px;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+button.secondary {
+  background: transparent;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+}
+
+button.quiet {
+  background: transparent;
+  color: var(--muted);
+}
+
+.field {
+  display: grid;
+  gap: 4px;
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.field select,
+.field input {
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  max-width: 320px;
+}
+
+.edit {
+  margin-top: 4px;
+}
+
+.row-button {
+  display: block;
+  width: 100%;
+  padding: 0;
+  background: none;
+  color: inherit;
+  text-align: left;
+  border-radius: 0;
+}
+
+.deadline {
+  margin: 0;
+  font-weight: 500;
+}
+
+.deadline.overdue {
+  color: var(--low);
+}
+
+.timeline {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 12px 0 0;
+  border-top: 1px solid var(--border);
+  display: grid;
+  gap: 8px;
+}
+
+.timeline li {
+  display: grid;
+  grid-template-columns: 7.5em 1fr;
+  column-gap: 12px;
+}
+
+.timeline li.pending {
+  opacity: 0.7;
+}
+
+.timeline .when {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.timeline .source {
+  grid-column: 2;
+  overflow-wrap: anywhere;
 }
