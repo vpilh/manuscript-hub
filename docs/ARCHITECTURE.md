@@ -16,7 +16,7 @@ Manuscript Hub runs entirely on the researcher's computer. There is no Manuscrip
 │        ├── mh-parser ── TransientMessage → ProposedEvent      │         │
 │        │     (bodies exist only in memory here)               │         │
 │        │                                                     │         │
-│        └── mh-store ── SQLCipher DB in per-user app data     │         │
+│        └── mh-store ── sealed SQLite file in per-user app data│         │
 │              key + tokens in the OS keychain                 │         │
 └──────────────────────────────────────────────────────────────┼─────────┘
                                                                ▼
@@ -30,8 +30,8 @@ Manuscript Hub runs entirely on the researcher's computer. There is no Manuscrip
 | `mh-core` | Domain types: `EditorialStatus`, `SourceRef`/`DedupKey`, `Field<T>` with confidence and original phrase, `ProposedEvent`, `ReviewState`, `CalendarDate`, `TransientMessage`. No I/O. | `serde` |
 | `mh-parser` | Candidate detection, quoted-reply stripping, manuscript-ID candidates, English and German status phrases and dates, assembly of a `ProposedEvent`. | `mh-core` |
 | `mh-connectors` | The `MailProvider` trait and sync cursors, the IMAP command allowlist, RFC 2822 / INTERNALDATE parsing, the mock provider for fixtures. Real adapters land here. | `mh-core` |
-| `mh-store` | Encrypted persistence and migrations (currently a schema draft). | — |
-| `src-tauri` | Wires the crates together behind IPC commands. No business logic. | all of the above, `tauri` |
+| `mh-store` | Encrypted persistence (in-memory SQLite, sealed to disk with XChaCha20-Poly1305 after each write), migrations, matching and the review queue. | `mh-core`, `rusqlite`, `chacha20poly1305` |
+| `src-tauri` | Wires the crates together behind IPC commands; keeps the database key in the OS keychain (`keychain.rs`). No business logic. | all of the above, `tauri`, `keyring` |
 
 The domain crates compile and test without Tauri or system webview libraries. CI runs them on Windows and macOS as well as Linux.
 
@@ -39,8 +39,9 @@ The domain crates compile and test without Tauri or system webview libraries. CI
 
 1. A provider returns a `ChangeBatch` of `TransientMessage`s plus the next `SyncCursor`. An expired cursor (`ProviderError::CursorExpired`) triggers a rescan of the backfill window.
 2. `mh_parser::extract` strips quoted history, finds IDs, status, dates and deadlines, and returns a `ProposedEvent` with per-field confidence, provenance (`parser_version`, original phrases) and a list of uncertainty reasons. The message body is then dropped.
-3. *(WP 1.5)* Matching links the proposal to a manuscript: exact ID first, then journal + title. Messages already processed are skipped by `DedupKey` (`source_messages` table).
-4. *(WP 1.5)* The review queue shows proposals. Only the user's confirmation (or a future opt-in rule for non-conflicting, high-confidence updates, FR18) changes a manuscript record.
+3. `Store::record_proposal` skips messages already processed (`source_messages`, unique per account and message ID), then suggests a manuscript. The rules, in order: same ID at the same journal; same ID when the sender's journal is unknown; a similar title. A known *different* journal with the same ID means a different manuscript. Conflicts with confirmed data are added to the proposal as notes.
+4. The review queue shows proposals. `Store::review` confirms, edits, ignores or marks them unrelated, and reviewed events are final. An ID shared across journals needs an explicit choice. The only other planned path is an opt-in rule for non-conflicting, high-confidence updates (FR18).
+5. A manuscript's current status, deadline and requested action are **derived** from its newest confirmed events by message time, never stored as mutable fields. Confirming an older message adds it to the timeline without changing what is current.
 
 ## Invariants
 
