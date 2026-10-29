@@ -120,7 +120,9 @@ export function inDesktopShell(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
 
-export const api = {
+export type Api = typeof desktopApi;
+
+const desktopApi = {
   appInfo: () => invoke<AppInfo>("app_info"),
   scanDemoMailbox: () => invoke<ScanSummary>("scan_demo_mailbox"),
   reviewQueue: () => invoke<QueueItem[]>("review_queue"),
@@ -129,3 +131,8 @@ export const api = {
   manuscripts: () => invoke<ManuscriptSummary[]>("manuscripts"),
   timeline: (manuscriptId: number) => invoke<TimelineEntry[]>("timeline", { manuscriptId }),
 };
+
+/** In a dev browser (`npm run dev`) the UI runs on an in-memory mock; production builds never include it. */
+export const usingMock = !inDesktopShell() && import.meta.env.DEV;
+
+export const api: Api = usingMock ? (await import("./mock")).mockApi : desktopApi;

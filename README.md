@@ -38,7 +38,7 @@ No mailbox account or cloud credentials are needed for development.
 | Task | Command |
 |---|---|
 | Run the desktop app (dev) | `npm run tauri dev` |
-| UI only, in a browser | `npm run dev` |
+| UI only, in a browser (sample data, no Rust needed) | `npm run dev` |
 | All Rust tests | `cargo test --workspace` |
 | One crate / one test | `cargo test -p mh-parser` · `cargo test -p mh-parser german_acceptance` |
 | Frontend tests | `npm test` |

@@ -1,50 +1,65 @@
-import { useState } from "react";
+import { TriangleAlert } from "lucide-react";
+import { useId, useState } from "react";
 
 import type {
   EditorialStatus,
+  EventEdits,
   ManuscriptSummary,
   QueueItem,
   ReviewDecision,
 } from "../lib/api";
 import {
   ALL_STATUSES,
-  confidenceLabel,
+  confidenceWord,
   daysUntil,
   formatTimestamp,
   isoDate,
+  isUrgent,
+  longDate,
   parseIsoDate,
+  relativeDue,
   statusLabel,
 } from "../lib/format";
+import { StatusMark } from "./StatusMark";
 
 interface Props {
   items: QueueItem[];
   manuscripts: ManuscriptSummary[];
+  scanning: boolean;
+  onScan: () => void;
   onDecide: (eventId: number, decision: ReviewDecision) => Promise<void>;
 }
 
-export function ReviewQueue({ items, manuscripts, onDecide }: Props) {
+export function ReviewQueue({ items, manuscripts, scanning, onScan, onDecide }: Props) {
   if (items.length === 0) {
     return (
-      <p className="empty muted">
-        Nothing to review. New journal mail shows up here before anything is saved.
-      </p>
+      <div className="empty">
+        <p className="empty-title">Nothing waiting for a decision.</p>
+        <p>
+          When journal mail arrives, each message shows up here with the words it was read from.
+          Nothing is saved until you decide.
+        </p>
+        <button className="secondary" onClick={onScan} disabled={scanning}>
+          {scanning ? "Scanning the demo mailbox…" : "Scan the demo mailbox"}
+        </button>
+      </div>
     );
   }
   return (
-    <ul className="cards">
+    <ol className="proposals" aria-label="Messages to review">
       {items.map((item) => (
-        <ReviewCard
+        <Proposal
           key={item.event_id}
           item={item}
           manuscripts={manuscripts}
           onDecide={(decision) => onDecide(item.event_id, decision)}
         />
       ))}
-    </ul>
+    </ol>
   );
 }
 
-function ReviewCard(props: {
+function Proposal(props: {
   item: QueueItem;
   manuscripts: ManuscriptSummary[];
   onDecide: (decision: ReviewDecision) => Promise<void>;
@@ -52,6 +67,7 @@ function ReviewCard(props: {
   const { item, manuscripts, onDecide } = props;
   const { proposal, match_kind, match_rationale, suggested_manuscript } = item;
   const { status, deadline, manuscript_id, journal, requested_action, uncertainty } = proposal;
+  const headingId = useId();
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -61,7 +77,16 @@ function ReviewCard(props: {
       ? manuscripts.filter((m) => m.external_id === manuscript_id?.value)
       : [];
   const [choice, setChoice] = useState<number | null>(null);
-  const needsChoice = match_kind === "ambiguous" && choice === null;
+  const chosen = candidates.find((m) => m.id === choice);
+  const needsChoice = match_kind === "ambiguous" && !chosen;
+
+  const target = chosen ?? suggested_manuscript;
+  const targetName = target ? (target.external_id ?? target.journal) : null;
+  const addLabel = targetName
+    ? `Add to ${targetName}`
+    : manuscript_id
+      ? `Start tracking ${manuscript_id.value}`
+      : "Start tracking";
 
   async function decide(decision: ReviewDecision) {
     setBusy(true);
@@ -72,75 +97,88 @@ function ReviewCard(props: {
   const days = deadline ? daysUntil(deadline.value, new Date()) : null;
 
   return (
-    <li className="card">
-      <div className="card-head">
-        <span className="status">{status ? statusLabel(status.value) : "No status found"}</span>
-        <span className="mono">{manuscript_id?.value ?? "No manuscript ID"}</span>
-      </div>
-      <p className="journal">
-        {journal?.value ?? "Unknown journal"} · received{" "}
-        {formatTimestamp(proposal.source.received_at)}
-      </p>
+    <li className="proposal" aria-labelledby={headingId}>
+      <figure className="evidence">
+        {status ? (
+          <blockquote id={headingId}>“{status.original}”</blockquote>
+        ) : (
+          <blockquote id={headingId} className="no-evidence">
+            No editorial decision found in this message.
+          </blockquote>
+        )}
+        <figcaption>
+          From {journal?.value ?? "an unknown sender"}, received{" "}
+          {formatTimestamp(proposal.source.received_at)}
+        </figcaption>
+      </figure>
 
-      <dl>
-        {deadline && (
+      <dl className="facts">
+        <dt>Status</dt>
+        <dd>
+          <StatusMark status={status?.value ?? null} />
+          {status && <span className="confidence">{confidenceWord(status.confidence)}</span>}
+        </dd>
+
+        <dt>Manuscript</dt>
+        <dd className="figures">{manuscript_id?.value ?? "No ID in the message"}</dd>
+
+        {deadline && days !== null && (
           <>
-            <dt>Deadline</dt>
+            <dt>Due</dt>
             <dd>
-              {isoDate(deadline.value)}
-              {days !== null && (
-                <span className="muted"> · {days >= 0 ? `in ${days} days` : `${-days} days ago`}</span>
-              )}
-              <Confidence value={deadline.confidence} />
+              <span className={isUrgent(days) ? "due urgent" : "due"}>
+                {longDate(deadline.value)}, {relativeDue(days)}
+              </span>
+              <span className="confidence">{confidenceWord(deadline.confidence)}</span>
             </dd>
           </>
         )}
+
         {requested_action && (
           <>
-            <dt>Action</dt>
+            <dt>To do</dt>
             <dd>{requested_action.value}</dd>
           </>
         )}
-        {status && (
-          <>
-            <dt>Evidence</dt>
-            <dd>
-              “{status.original}”
-              <Confidence value={status.confidence} />
-            </dd>
-          </>
-        )}
-        <dt>Match</dt>
+
+        <dt>Adds to</dt>
         <dd>
-          {suggested_manuscript && (
-            <strong>
-              {suggested_manuscript.journal}
-              {suggested_manuscript.external_id && ` · ${suggested_manuscript.external_id}`}.{" "}
-            </strong>
+          {target ? (
+            <span className="target">
+              {target.journal}, {target.external_id ?? "no ID"}
+            </span>
+          ) : (
+            <span className="target">Starts a new manuscript</span>
           )}
-          <span className="muted">{match_rationale}</span>
+          {/* An exact ID match explains itself; anything weaker says why. */}
+          {match_kind !== "exact_id" && !chosen && (
+            <span className="rationale">{match_rationale}</span>
+          )}
         </dd>
       </dl>
 
       {uncertainty.length > 0 && (
-        <ul className="uncertainty">
+        <ul className="doubts" aria-label="Check before saving">
           {uncertainty.map((reason) => (
-            <li key={reason}>{reason}</li>
+            <li key={reason}>
+              <TriangleAlert aria-hidden="true" size={16} />
+              {reason}
+            </li>
           ))}
         </ul>
       )}
 
       {candidates.length > 0 && (
         <label className="field">
-          Which manuscript is this about?
+          <span>Which manuscript is this about?</span>
           <select
             value={choice ?? ""}
             onChange={(e) => setChoice(e.target.value ? Number(e.target.value) : null)}
           >
-            <option value="">Choose…</option>
+            <option value="">Choose a manuscript</option>
             {candidates.map((m) => (
               <option key={m.id} value={m.id}>
-                {m.journal} · {m.external_id}
+                {m.journal}, {m.external_id}
               </option>
             ))}
           </select>
@@ -151,19 +189,20 @@ function ReviewCard(props: {
         <EditForm
           item={item}
           busy={busy}
+          submitLabel={targetName ? "Save and add" : "Save and start tracking"}
           onCancel={() => setEditing(false)}
           onSave={(edits) => decide({ kind: "confirm", manuscript_id: choice, edits })}
         />
       ) : (
-        <div className="actions">
+        <div className="decide">
           <button
             disabled={busy || needsChoice}
             onClick={() => decide({ kind: "confirm", manuscript_id: choice })}
           >
-            Confirm
+            {needsChoice ? "Choose a manuscript first" : addLabel}
           </button>
-          <button className="secondary" disabled={busy || needsChoice} onClick={() => setEditing(true)}>
-            Edit…
+          <button className="secondary" disabled={busy} onClick={() => setEditing(true)}>
+            Correct details
           </button>
           <button className="quiet" disabled={busy} onClick={() => decide({ kind: "ignore" })}>
             Ignore
@@ -180,12 +219,9 @@ function ReviewCard(props: {
 function EditForm(props: {
   item: QueueItem;
   busy: boolean;
+  submitLabel: string;
   onCancel: () => void;
-  onSave: (edits: {
-    status: EditorialStatus | null;
-    deadline: ReturnType<typeof parseIsoDate>;
-    requested_action: string | null;
-  }) => void;
+  onSave: (edits: EventEdits) => void;
 }) {
   const { proposal } = props.item;
   const [status, setStatus] = useState<string>(proposal.status?.value ?? "");
@@ -194,10 +230,11 @@ function EditForm(props: {
   );
   const [action, setAction] = useState(proposal.requested_action?.value ?? "");
   const deadlineInvalid = deadline !== "" && parseIsoDate(deadline) === null;
+  const deadlineError = useId();
 
   return (
     <form
-      className="edit"
+      className="corrections"
       onSubmit={(e) => {
         e.preventDefault();
         props.onSave({
@@ -208,9 +245,9 @@ function EditForm(props: {
       }}
     >
       <label className="field">
-        Status
+        <span>Status</span>
         <select value={status} onChange={(e) => setStatus(e.target.value)}>
-          <option value="">None</option>
+          <option value="">No status</option>
           {ALL_STATUSES.map((s) => (
             <option key={s} value={s}>
               {statusLabel(s)}
@@ -219,16 +256,32 @@ function EditForm(props: {
         </select>
       </label>
       <label className="field">
-        Deadline
-        <input type="date" value={deadline} onChange={(e) => setDeadline(e.target.value)} />
+        <span>Deadline</span>
+        <input
+          type="date"
+          value={deadline}
+          aria-invalid={deadlineInvalid}
+          aria-describedby={deadlineInvalid ? deadlineError : undefined}
+          onChange={(e) => setDeadline(e.target.value)}
+        />
+        {deadlineInvalid && (
+          <span id={deadlineError} className="field-error">
+            Enter a real calendar date, or leave it empty.
+          </span>
+        )}
       </label>
       <label className="field">
-        Requested action
-        <input type="text" value={action} onChange={(e) => setAction(e.target.value)} />
+        <span>What to do</span>
+        <input
+          type="text"
+          value={action}
+          placeholder="e.g. Submit revised manuscript"
+          onChange={(e) => setAction(e.target.value)}
+        />
       </label>
-      <div className="actions">
+      <div className="decide">
         <button type="submit" disabled={props.busy || deadlineInvalid}>
-          Save and confirm
+          {props.submitLabel}
         </button>
         <button type="button" className="quiet" onClick={props.onCancel}>
           Cancel
@@ -236,9 +289,4 @@ function EditForm(props: {
       </div>
     </form>
   );
-}
-
-function Confidence({ value }: { value: number }) {
-  const label = confidenceLabel(value);
-  return <span className={`confidence ${label}`}>{label}</span>;
 }

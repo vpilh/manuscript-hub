@@ -1,3 +1,4 @@
+import { Inbox, Library, Lock } from "lucide-react";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 
 import { Manuscripts } from "./components/Manuscripts";
@@ -5,20 +6,29 @@ import { ReviewQueue } from "./components/ReviewQueue";
 import {
   api,
   inDesktopShell,
+  usingMock,
   type AppInfo,
   type ManuscriptSummary,
   type QueueItem,
   type ScanSummary,
 } from "./lib/api";
 
-type Tab = "review" | "manuscripts";
+type View = "review" | "manuscripts";
+
+// Deep links: #manuscripts opens the ledger, #manuscripts/<id> also opens that manuscript.
+const initialView = (): View =>
+  window.location.hash.startsWith("#manuscripts") ? "manuscripts" : "review";
+const initialOpenId = (): number | null => {
+  const id = Number(window.location.hash.split("/")[1]);
+  return Number.isInteger(id) && id > 0 ? id : null;
+};
 
 export function App() {
-  const desktop = inDesktopShell();
+  const live = inDesktopShell() || usingMock;
   const [info, setInfo] = useState<AppInfo | null>(null);
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [manuscripts, setManuscripts] = useState<ManuscriptSummary[]>([]);
-  const [tab, setTab] = useState<Tab>("review");
+  const [view, setView] = useState<View>(initialView);
   const [error, setError] = useState<string | null>(null);
   const [scan, setScan] = useState<ScanSummary | null>(null);
   const [scanning, setScanning] = useState(false);
@@ -34,14 +44,22 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    if (!desktop) return;
-    api.appInfo().then((i) => {
-      setInfo(i);
-      if (!i.storage_error) void refresh();
-    }, (e) => setError(String(e)));
-  }, [desktop, refresh]);
+    if (!live) return;
+    api.appInfo().then(
+      (i) => {
+        setInfo(i);
+        if (!i.storage_error) void refresh();
+      },
+      (e) => setError(String(e)),
+    );
+  }, [live, refresh]);
 
-  /** Runs an action, then reloads queue and manuscripts. */
+  const show = (next: View) => {
+    setView(next);
+    history.replaceState(null, "", next === "manuscripts" ? "#manuscripts" : "#");
+  };
+
+  /** Runs an action, then reloads the review list and manuscripts. */
   const act = useCallback(
     async (action: () => Promise<unknown>) => {
       setError(null);
@@ -61,88 +79,118 @@ export function App() {
     setScanning(false);
   }
 
-  if (!desktop) {
-    return (
-      <main className="shell">
-        <Masthead info={null} />
-        <p className="notice">
-          This is the browser preview. Run <code>npm run tauri dev</code> to start the desktop app.
-        </p>
+  const storageError = info?.storage_error ?? null;
+
+  return (
+    <div className="app">
+      <aside className="rail">
+        <p className="wordmark">Manuscript Hub</p>
+        {live && (
+          <nav aria-label="Views">
+            <RailLink active={view === "review"} onClick={() => show("review")} count={queue.length}>
+              <Inbox aria-hidden="true" size={18} />
+              Review
+            </RailLink>
+            <RailLink
+              active={view === "manuscripts"}
+              onClick={() => show("manuscripts")}
+              count={manuscripts.length}
+            >
+              <Library aria-hidden="true" size={18} />
+              Manuscripts
+            </RailLink>
+          </nav>
+        )}
+        <div className="rail-foot">
+          {live && (
+            <button className="secondary" onClick={scanDemo} disabled={scanning || !!storageError}>
+              {scanning ? "Scanning…" : "Scan demo mailbox"}
+            </button>
+          )}
+          <p className="privacy">
+            <Lock aria-hidden="true" size={14} />
+            Mail is read on this computer and stays here.
+          </p>
+          {info && (
+            <p className="version">
+              Version {info.version}, parser {info.parser_version}
+              {usingMock && <> (browser preview with sample data)</>}
+            </p>
+          )}
+        </div>
+      </aside>
+
+      <main className="page">
+        {!live ? (
+          <section>
+            <h1>Open the desktop app</h1>
+            <p className="lede">
+              This page is the interface of the desktop app and needs it to run. Start it with{" "}
+              <code>npm run tauri dev</code>.
+            </p>
+          </section>
+        ) : (
+          <section aria-labelledby="view-title">
+            <h1 id="view-title">{view === "review" ? "Review" : "Manuscripts"}</h1>
+            <p className="lede">
+              {view === "review"
+                ? "Messages that look like journal correspondence. Check what was read, then add it to a manuscript or set it aside."
+                : "Everything you have confirmed, with the current status and the next deadline."}
+            </p>
+
+            {storageError && (
+              <p className="notice error" role="alert">
+                The local database could not be opened. {storageError}
+              </p>
+            )}
+            <div role="status" className="status-line">
+              {scan &&
+                `Scanned ${scan.messages} sample messages: ${scan.proposed} new to review, ${scan.already_seen} seen before, ${scan.not_journal_mail} not journal mail.`}
+            </div>
+            {error && (
+              <p className="notice error" role="alert">
+                {error}
+              </p>
+            )}
+
+            {view === "review" ? (
+              <ReviewQueue
+                items={queue}
+                manuscripts={manuscripts}
+                scanning={scanning}
+                onScan={scanDemo}
+                onDecide={(eventId, decision) => act(() => api.reviewEvent(eventId, decision))}
+              />
+            ) : (
+              <Manuscripts
+                manuscripts={manuscripts}
+                initialOpenId={initialOpenId()}
+                onOpenReview={() => show("review")}
+              />
+            )}
+          </section>
+        )}
       </main>
-    );
-  }
-
-  return (
-    <main className="shell">
-      <Masthead info={info} />
-
-      {info?.storage_error && (
-        <p className="notice error">
-          The local database could not be opened: {info.storage_error}
-        </p>
-      )}
-
-      <div className="toolbar">
-        <nav className="tabs" aria-label="Views">
-          <TabButton active={tab === "review"} onClick={() => setTab("review")}>
-            Review <span className="count">{queue.length}</span>
-          </TabButton>
-          <TabButton active={tab === "manuscripts"} onClick={() => setTab("manuscripts")}>
-            Manuscripts <span className="count">{manuscripts.length}</span>
-          </TabButton>
-        </nav>
-        <button onClick={scanDemo} disabled={scanning || !!info?.storage_error}>
-          {scanning ? "Scanning…" : "Scan demo mailbox"}
-        </button>
-      </div>
-
-      {scan && (
-        <p className="muted small">
-          Scanned {scan.messages} synthetic messages: {scan.proposed} new for review,{" "}
-          {scan.already_seen} already seen, {scan.not_journal_mail} not journal mail.
-        </p>
-      )}
-      {error && <p className="notice error">{error}</p>}
-
-      {tab === "review" ? (
-        <ReviewQueue
-          items={queue}
-          manuscripts={manuscripts}
-          onDecide={(eventId, decision) => act(() => api.reviewEvent(eventId, decision))}
-        />
-      ) : (
-        <Manuscripts manuscripts={manuscripts} />
-      )}
-    </main>
+    </div>
   );
 }
 
-function Masthead({ info }: { info: AppInfo | null }) {
-  return (
-    <header className="masthead">
-      <div>
-        <h1>Manuscript Hub</h1>
-        <p className="muted">
-          Local-first submission tracking. Mail is read on this computer and never leaves it.
-        </p>
-      </div>
-      {info && (
-        <span className="muted small">
-          v{info.version} · parser {info.parser_version}
-        </span>
-      )}
-    </header>
-  );
-}
-
-function TabButton(props: { active: boolean; onClick: () => void; children: ReactNode }) {
+function RailLink(props: {
+  active: boolean;
+  onClick: () => void;
+  count: number;
+  children: ReactNode;
+}) {
   return (
     <button
-      className={`tab ${props.active ? "active" : ""}`}
-      aria-pressed={props.active}
+      className="rail-link"
+      aria-current={props.active ? "page" : undefined}
       onClick={props.onClick}
     >
-      {props.children}
+      <span className="rail-label">{props.children}</span>
+      <span className="rail-count" aria-label={`${props.count} items`}>
+        {props.count}
+      </span>
     </button>
   );
 }

@@ -1,54 +1,90 @@
-import { useEffect, useState } from "react";
+import { ChevronDown } from "lucide-react";
+import { useEffect, useId, useState } from "react";
 
 import { api, type ManuscriptSummary, type TimelineEntry } from "../lib/api";
-import { daysUntil, formatTimestamp, isoDate, statusLabel } from "../lib/format";
+import { daysUntil, formatTimestamp, isUrgent, longDate, relativeDue, statusLabel } from "../lib/format";
+import { StatusMark } from "./StatusMark";
 
-export function Manuscripts({ manuscripts }: { manuscripts: ManuscriptSummary[] }) {
-  const [openId, setOpenId] = useState<number | null>(null);
+interface Props {
+  manuscripts: ManuscriptSummary[];
+  initialOpenId: number | null;
+  onOpenReview: () => void;
+}
+
+export function Manuscripts({ manuscripts, initialOpenId, onOpenReview }: Props) {
+  const [openId, setOpenId] = useState<number | null>(initialOpenId);
 
   if (manuscripts.length === 0) {
     return (
-      <p className="empty muted">
-        No manuscripts yet. Confirm an item in the review queue to start tracking it.
-      </p>
+      <div className="empty">
+        <p className="empty-title">No manuscripts tracked yet.</p>
+        <p>Add a message from the review list and its manuscript starts here, with every update in order.</p>
+        <button className="secondary" onClick={onOpenReview}>
+          Go to review
+        </button>
+      </div>
     );
   }
 
   return (
-    <ul className="cards">
-      {manuscripts.map((m) => {
-        const days = m.deadline ? daysUntil(m.deadline, new Date()) : null;
-        const open = openId === m.id;
-        return (
-          <li key={m.id} className="card">
-            <button
-              className="row-button"
-              aria-expanded={open}
-              onClick={() => setOpenId(open ? null : m.id)}
-            >
-              <div className="card-head">
-                <span className="status">{m.status ? statusLabel(m.status) : "No status yet"}</span>
-                <span className="mono">{m.external_id ?? "No manuscript ID"}</span>
-              </div>
-              <p className="journal">
-                {m.journal}
-                {m.status_since && ` · since ${formatTimestamp(m.status_since)}`}
-              </p>
-              {m.deadline && (
-                <p className={days !== null && days < 0 ? "deadline overdue" : "deadline"}>
-                  {m.requested_action ?? "Due"} by {isoDate(m.deadline)}
-                  {days !== null && (days >= 0 ? ` · in ${days} days` : ` · ${-days} days overdue`)}
-                </p>
-              )}
-              {m.pending_reviews > 0 && (
-                <p className="muted small">{m.pending_reviews} update(s) awaiting review</p>
-              )}
-            </button>
-            {open && <Timeline manuscriptId={m.id} />}
-          </li>
-        );
-      })}
+    <ul className="ledger" aria-label="Tracked manuscripts">
+      {manuscripts.map((m) => (
+        <LedgerRow
+          key={m.id}
+          manuscript={m}
+          open={openId === m.id}
+          onToggle={() => setOpenId(openId === m.id ? null : m.id)}
+        />
+      ))}
     </ul>
+  );
+}
+
+function LedgerRow(props: {
+  manuscript: ManuscriptSummary;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  const { manuscript: m, open, onToggle } = props;
+  const panelId = useId();
+  const days = m.deadline ? daysUntil(m.deadline, new Date()) : null;
+
+  return (
+    <li className={open ? "ledger-row open" : "ledger-row"}>
+      <button className="ledger-toggle" aria-expanded={open} aria-controls={panelId} onClick={onToggle}>
+        <span className="ledger-status">
+          <StatusMark status={m.status} />
+          {m.status_since && <span className="since">since {formatTimestamp(m.status_since)}</span>}
+        </span>
+        <span className="ledger-paper">
+          <span className="ledger-journal">{m.journal}</span>
+          <span className="figures">{m.external_id ?? "No ID"}</span>
+        </span>
+        <span className="ledger-due">
+          {m.deadline && days !== null ? (
+            <>
+              <span className={isUrgent(days) ? "due urgent" : "due"}>{relativeDue(days)}</span>
+              <span className="since">
+                {m.requested_action ?? "Due"}, {longDate(m.deadline)}
+              </span>
+            </>
+          ) : (
+            <span className="since">No open deadline</span>
+          )}
+          {m.pending_reviews > 0 && (
+            <span className="pending-note">
+              {m.pending_reviews === 1 ? "1 update to review" : `${m.pending_reviews} updates to review`}
+            </span>
+          )}
+        </span>
+        <ChevronDown className="chevron" aria-hidden="true" size={18} />
+      </button>
+      {open && (
+        <div id={panelId}>
+          <Timeline manuscriptId={m.id} />
+        </div>
+      )}
+    </li>
   );
 }
 
@@ -60,25 +96,34 @@ function Timeline({ manuscriptId }: { manuscriptId: number }) {
     api.timeline(manuscriptId).then(setEntries, (e) => setError(String(e)));
   }, [manuscriptId]);
 
-  if (error) return <p className="notice error">{error}</p>;
+  if (error) {
+    return (
+      <p className="notice error" role="alert">
+        The timeline could not be loaded: {error}
+      </p>
+    );
+  }
   if (!entries) return null;
 
   return (
-    <ol className="timeline">
+    <ol className="timeline" aria-label="Updates, newest first">
       {entries.map((e) => (
-        <li key={e.event_id} className={e.review_state === "proposed" ? "pending" : undefined}>
-          <span className="when">{formatTimestamp(e.occurred_at)}</span>
-          <span>
-            {e.status ? statusLabel(e.status) : "Update"}
-            {e.deadline && ` · due ${isoDate(e.deadline)}`}
-            {e.review_state === "edited" && <span className="muted"> · edited</span>}
-            {e.review_state === "proposed" && <span className="muted"> · awaiting review</span>}
-          </span>
-          {e.source && (
-            <span className="muted small source">
-              {e.source.account_alias} · {e.source.folder} · <span className="mono">{e.source.message_id}</span>
-            </span>
-          )}
+        <li key={e.event_id} className={e.review_state === "proposed" ? "step pending" : "step"}>
+          <time className="step-date">{formatTimestamp(e.occurred_at)}</time>
+          <div className="step-body">
+            <p className="step-title">
+              {e.status ? statusLabel(e.status) : "Update"}
+              {e.review_state === "edited" && <span className="since"> (corrected by you)</span>}
+              {e.review_state === "proposed" && <span className="since"> (waiting for review)</span>}
+            </p>
+            {e.original_phrase && <p className="step-quote">“{e.original_phrase}”</p>}
+            {e.deadline && <p className="since">Due {longDate(e.deadline)}</p>}
+            {e.source && (
+              <p className="since source">
+                {e.source.account_alias}, {e.source.folder}
+              </p>
+            )}
+          </div>
         </li>
       ))}
     </ol>
