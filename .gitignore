@@ -1,0 +1,28 @@
+# Build output
+/target/
+/ui/dist/
+node_modules/
+
+# Local environment and editor files
+.env
+.env.*
+!.env.example
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/extensions.json
+.idea/
+
+# Never commit real mailbox data, exports or local databases
+*.sqlite
+*.sqlite3
+*.db
+/exports/
+/private-fixtures/
+
+# Draft documents (binary office files) stay out of the repo
+*.docx
+
+# Personal Claude Code settings
+CLAUDE.local.md
+.claude/settings.local.json

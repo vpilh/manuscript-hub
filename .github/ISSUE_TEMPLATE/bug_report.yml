@@ -1,0 +1,47 @@
+name: Bug report
+description: Something does not work as expected.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Do not paste real email content, addresses, manuscript IDs, tokens or passwords.** This issue tracker is public.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: dropdown
+    id: provider
+    attributes:
+      label: Mail provider
+      options:
+        - Not provider-related
+        - Gmail / Google Workspace
+        - Outlook / Microsoft 365
+        - GroupWise (IMAP)
+        - Demo mailbox / manual entry
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: App version
+      placeholder: e.g. 0.1.0
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options: [Windows, macOS, Linux]
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Diagnostics
+      description: Error messages or diagnostic output, with any personal data removed.
+      render: text

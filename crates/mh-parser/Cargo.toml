@@ -1,0 +1,15 @@
+[package]
+name = "mh-parser"
+description = "Journal-mail detection and editorial-event extraction"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+mh-core.workspace = true
+
+[dev-dependencies]
+mh-connectors.workspace = true

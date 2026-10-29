@@ -1,0 +1,12 @@
+[package]
+name = "mh-connectors"
+description = "Read-only mailbox connectors for Manuscript Hub"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+mh-core.workspace = true
