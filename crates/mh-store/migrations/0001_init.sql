@@ -1,4 +1,4 @@
--- Draft schema (WP 1.2 / 1.3). Normalized metadata and source references only.
+-- Normalized metadata and source references only (FR15, PRD §6).
 -- Timestamps are Unix seconds (UTC); dates are ISO `YYYY-MM-DD`.
 
 CREATE TABLE accounts (
@@ -22,41 +22,47 @@ CREATE TABLE sync_cursors (
 );
 
 CREATE TABLE manuscripts (
-    id                INTEGER PRIMARY KEY,
-    journal           TEXT NOT NULL,
-    -- Journal-issued ID; NULL for manually created records without one.
-    external_id       TEXT,
-    title             TEXT,
-    normalized_title  TEXT,
+    id            INTEGER PRIMARY KEY,
+    journal       TEXT NOT NULL,
+    -- Journal-issued ID; NULL for records created without one.
+    external_id   TEXT,
+    title         TEXT,
     -- Resubmission chains: the earlier manuscript this one continues.
-    previous_id       INTEGER REFERENCES manuscripts (id),
-    created_at        INTEGER NOT NULL,
+    previous_id   INTEGER REFERENCES manuscripts (id),
+    created_at    INTEGER NOT NULL,
     UNIQUE (journal, external_id)
 );
 
 -- One row per processed message, so rescans never create duplicate events (FR10).
 CREATE TABLE source_messages (
-    id            INTEGER PRIMARY KEY,
-    account_id    INTEGER NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
-    message_id    TEXT NOT NULL,
-    folder        TEXT NOT NULL,
-    received_at   INTEGER NOT NULL,
+    id             INTEGER PRIMARY KEY,
+    account_id     INTEGER NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
+    message_id     TEXT NOT NULL,
+    folder         TEXT NOT NULL,
+    received_at    INTEGER NOT NULL,
     parser_version TEXT NOT NULL,
     UNIQUE (account_id, message_id)
 );
 
 CREATE TABLE events (
     id                 INTEGER PRIMARY KEY,
-    manuscript_id      INTEGER REFERENCES manuscripts (id) ON DELETE CASCADE,
+    -- NULL for manual entries (FR17).
     source_message_id  INTEGER REFERENCES source_messages (id) ON DELETE SET NULL,
+    -- While proposed: the suggested manuscript. After review: the confirmed one.
+    manuscript_id      INTEGER REFERENCES manuscripts (id) ON DELETE CASCADE,
+    match_kind         TEXT NOT NULL CHECK (match_kind IN ('exact_id', 'id_only', 'title',
+                           'ambiguous', 'none', 'manual')),
+    journal            TEXT,
+    external_id        TEXT,
+    title              TEXT,
     status             TEXT CHECK (status IN ('submitted', 'with_editor', 'under_review',
                            'revision_required', 'revised', 'accepted', 'rejected', 'withdrawn')),
     original_phrase    TEXT,
     deadline           TEXT,
-    timezone_note      TEXT,
     requested_action   TEXT,
-    -- Per-field confidence and match rationale as JSON (provenance, PRD §6).
-    extraction_json    TEXT NOT NULL DEFAULT '{}',
+    -- The full proposal: per-field confidence, original phrases, uncertainty,
+    -- match rationale and parser version (provenance).
+    extraction_json    TEXT NOT NULL,
     review_state       TEXT NOT NULL CHECK (review_state IN ('proposed', 'confirmed', 'edited',
                            'ignored', 'unrelated')),
     occurred_at        INTEGER NOT NULL,

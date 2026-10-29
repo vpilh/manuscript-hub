@@ -15,7 +15,8 @@ export default defineConfig({
   build: {
     outDir: "dist",
     emptyOutDir: true,
-    target: "es2021",
+    // es2022 for top-level await (dev-only mock switch in ui/src/lib/api.ts).
+    target: "es2022",
   },
   test: {
     environment: "node",

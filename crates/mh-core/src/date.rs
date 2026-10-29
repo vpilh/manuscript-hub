@@ -1,20 +1,38 @@
-use std::fmt;
+use std::{fmt, str::FromStr};
 
 use serde::{Deserialize, Serialize};
 
 /// A calendar date without time or timezone. Deadlines in editorial mail are
 /// almost always day-granular; the timezone assumption is stored separately.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(try_from = "DateParts")]
 pub struct CalendarDate {
     year: i32,
     month: u8,
     day: u8,
 }
 
+/// Unvalidated wire form, so deserializing (e.g. from the UI) cannot build an impossible date.
+#[derive(Deserialize)]
+struct DateParts {
+    year: i32,
+    month: u8,
+    day: u8,
+}
+
+impl TryFrom<DateParts> for CalendarDate {
+    type Error = DateError;
+
+    fn try_from(parts: DateParts) -> Result<Self, Self::Error> {
+        CalendarDate::new(parts.year, parts.month, parts.day)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DateError {
     MonthOutOfRange,
     DayOutOfRange,
+    Malformed,
 }
 
 impl fmt::Display for DateError {
@@ -22,7 +40,22 @@ impl fmt::Display for DateError {
         match self {
             DateError::MonthOutOfRange => f.write_str("month out of range"),
             DateError::DayOutOfRange => f.write_str("day out of range for month"),
+            DateError::Malformed => f.write_str("expected a date as YYYY-MM-DD"),
         }
+    }
+}
+
+/// Parses the ISO `YYYY-MM-DD` form produced by `Display`.
+impl FromStr for CalendarDate {
+    type Err = DateError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut parts = s.splitn(3, '-');
+        let mut next = || parts.next().ok_or(DateError::Malformed);
+        let year = next()?.parse().map_err(|_| DateError::Malformed)?;
+        let month = next()?.parse().map_err(|_| DateError::Malformed)?;
+        let day = next()?.parse().map_err(|_| DateError::Malformed)?;
+        CalendarDate::new(year, month, day)
     }
 }
 
@@ -147,6 +180,20 @@ mod tests {
             CalendarDate::new(2028, 2, 29).unwrap()
         );
         assert_eq!(start.add_days(-365).add_days(365), start);
+    }
+
+    #[test]
+    fn parses_iso_round_trip() {
+        let date = CalendarDate::new(2026, 11, 2).unwrap();
+        assert_eq!(date.to_string().parse::<CalendarDate>(), Ok(date));
+        assert_eq!(
+            "2026-02-30".parse::<CalendarDate>(),
+            Err(DateError::DayOutOfRange)
+        );
+        assert_eq!(
+            "12.11.2026".parse::<CalendarDate>(),
+            Err(DateError::Malformed)
+        );
     }
 
     #[test]
