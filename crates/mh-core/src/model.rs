@@ -12,6 +12,29 @@ pub enum Provider {
     Mock,
 }
 
+impl Provider {
+    pub const ALL: [Provider; 4] = [
+        Provider::Gmail,
+        Provider::MicrosoftGraph,
+        Provider::GroupwiseImap,
+        Provider::Mock,
+    ];
+
+    /// Same spelling as the serde form and the `accounts.provider` column.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Provider::Gmail => "gmail",
+            Provider::MicrosoftGraph => "microsoft_graph",
+            Provider::GroupwiseImap => "groupwise_imap",
+            Provider::Mock => "mock",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|p| p.as_str() == value)
+    }
+}
+
 /// Enough to reopen the original message in the user's mail client. No body copy.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SourceRef {
