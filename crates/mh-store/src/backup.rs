@@ -8,7 +8,7 @@
 
 use argon2::Argon2;
 use chacha20poly1305::{
-    aead::{rand_core::RngCore, Aead, AeadCore, KeyInit, OsRng, Payload},
+    aead::{Aead, AeadCore, KeyInit, OsRng, Payload},
     Key, XChaCha20Poly1305, XNonce,
 };
 
@@ -40,16 +40,17 @@ pub fn seal_backup(export: &Export, password: &str) -> Result<Vec<u8>, StoreErro
         )));
     }
     let plain = Zeroizing::new(serde_json::to_vec(export)?);
-    let mut salt = [0u8; SALT_LEN];
-    OsRng.fill_bytes(&mut salt);
-    let key = derive_key(password, &salt)?;
+    // A fresh random salt for every backup, taken from the OS generator.
+    let random = XChaCha20Poly1305::generate_key(&mut OsRng);
+    let salt = &random[..SALT_LEN];
+    let key = derive_key(password, salt)?;
     let cipher = XChaCha20Poly1305::new(Key::from_slice(key.as_slice()));
     let nonce = XChaCha20Poly1305::generate_nonce(&mut OsRng);
 
     let mut header = Vec::with_capacity(HEADER_LEN);
     header.extend_from_slice(MAGIC);
     header.push(VERSION);
-    header.extend_from_slice(&salt);
+    header.extend_from_slice(salt);
     let sealed = cipher
         .encrypt(
             &nonce,
