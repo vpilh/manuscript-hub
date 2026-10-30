@@ -50,6 +50,8 @@ export interface ProposedEvent {
   parser_version: string;
   /** Why the message was treated as journal mail; empty on older proposals. */
   reason: string;
+  /** The sender's domain, for "never show mail from …"; null on older proposals. */
+  sender_domain: string | null;
   uncertainty: string[];
   review: ReviewState;
 }
@@ -109,6 +111,14 @@ export interface ScanSummary {
   proposed: number;
   already_seen: number;
   not_journal_mail: number;
+}
+
+/** "journal": always journal mail; "ignore": never. */
+export type SenderRuleKind = "journal" | "ignore";
+
+export interface SenderRule {
+  domain: string;
+  kind: SenderRuleKind;
 }
 
 export type Security = "tls" | "start_tls";
@@ -186,6 +196,11 @@ const desktopApi = {
   disconnectMailAccount: (accountId: number) =>
     invoke<void>("disconnect_mail_account", { accountId }),
   syncMailAccount: (accountId: number) => invoke<ScanSummary>("sync_mail_account", { accountId }),
+  senderRules: () => invoke<SenderRule[]>("sender_rules"),
+  /** Resolves to how many waiting proposals an "ignore" rule set aside. */
+  setSenderRule: (domain: string, kind: SenderRuleKind) =>
+    invoke<number>("set_sender_rule", { domain, kind }),
+  removeSenderRule: (domain: string) => invoke<void>("remove_sender_rule", { domain }),
   setCheckInterval: (accountId: number, minutes: number) =>
     invoke<void>("set_check_interval", { accountId, minutes }),
   /** Calls `handler` for every check, including scheduled ones; resolves to an unsubscribe function. */

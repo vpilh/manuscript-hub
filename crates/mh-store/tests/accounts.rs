@@ -33,6 +33,7 @@ fn proposal(message_id: &str) -> ProposedEvent {
         requested_action: None,
         parser_version: "test".into(),
         reason: "test".into(),
+        sender_domain: Some("jss.example.org".into()),
         uncertainty: Vec::new(),
         review: ReviewState::Proposed,
     }

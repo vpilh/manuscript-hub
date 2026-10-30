@@ -8,7 +8,7 @@ use crate::{
 };
 
 /// Recorded on every proposal for provenance (PRD §6).
-pub const PARSER_VERSION: &str = "seed-0.6";
+pub const PARSER_VERSION: &str = "seed-0.7";
 
 const DEADLINE_CUES: &[&str] = &[
     "due",
@@ -100,6 +100,11 @@ pub struct CandidateRules {
     /// Lowercase addresses of the mailbox owner. Their own messages (such as
     /// Gmail's sent mail in All Mail) are never proposals.
     pub own_addresses: Vec<String>,
+    /// Lowercase domains the user marked as journal mail; subdomains match too.
+    pub trusted_domains: Vec<String>,
+    /// Lowercase domains the user never wants proposals from; these win over
+    /// every other rule.
+    pub blocked_domains: Vec<String>,
 }
 
 impl Default for CandidateRules {
@@ -108,8 +113,22 @@ impl Default for CandidateRules {
             sender_domains: KNOWN_SENDER_DOMAINS.iter().map(|d| d.to_string()).collect(),
             editorial_terms: EDITORIAL_TERMS.iter().map(|t| t.to_string()).collect(),
             own_addresses: Vec::new(),
+            trusted_domains: Vec::new(),
+            blocked_domains: Vec::new(),
         }
     }
+}
+
+/// `domain` is `rule` or one of its subdomains.
+fn domain_matches(domain: &str, rule: &str) -> bool {
+    domain == rule || domain.ends_with(&format!(".{rule}"))
+}
+
+/// The lowercase domain of the sender's address, if it has one.
+pub fn sender_domain(from: &str) -> Option<String> {
+    let address = sender_address(from)?;
+    let (_, domain) = address.rsplit_once('@')?;
+    (!domain.is_empty()).then(|| domain.to_string())
 }
 
 impl CandidateRules {
@@ -135,11 +154,18 @@ impl CandidateRules {
             .as_deref()
             .and_then(|a| a.rsplit_once('@'))
             .map(|(_, d)| d);
-        let known_sender = self
-            .sender_domains
-            .iter()
-            .find(|d| domain.is_some_and(|s| s == *d || s.ends_with(&format!(".{d}"))));
-        if let Some(known) = known_sender {
+        let matching = |rules: &[String]| -> Option<String> {
+            let domain = domain?;
+            rules.iter().find(|r| domain_matches(domain, r)).cloned()
+        };
+        if matching(&self.blocked_domains).is_some() {
+            return None;
+        }
+        if let Some(trusted) = matching(&self.trusted_domains) {
+            return (first_id.is_some() || has_status)
+                .then(|| format!("Sent from {trusted}, which you marked as journal mail."));
+        }
+        if let Some(known) = matching(&self.sender_domains) {
             return (first_id.is_some() || has_status)
                 .then(|| format!("Sent from {known}, a known journal or editorial system."));
         }
@@ -342,6 +368,7 @@ pub fn extract(message: &TransientMessage, rules: &CandidateRules) -> Option<Pro
         requested_action,
         parser_version: PARSER_VERSION.to_string(),
         reason,
+        sender_domain: sender_domain(&message.from),
         uncertainty,
         review: ReviewState::Proposed,
     })
@@ -528,6 +555,41 @@ mod tests {
             event.reason,
             "Sent from elsevier.com, a known journal or editorial system."
         );
+    }
+
+    #[test]
+    fn user_rules_trust_and_block_senders() {
+        let small_journal = message(
+            "\"Small Journal\" <office@small-journal.example.org>",
+            "Your paper SJ-2026-0042",
+            "Your paper SJ-2026-0042 is under review.",
+        );
+        assert!(extract(&small_journal, &CandidateRules::default()).is_none());
+        let trusting = CandidateRules {
+            trusted_domains: vec!["small-journal.example.org".into()],
+            ..CandidateRules::default()
+        };
+        let event = extract(&small_journal, &trusting).unwrap();
+        assert_eq!(
+            event.reason,
+            "Sent from small-journal.example.org, which you marked as journal mail."
+        );
+        assert_eq!(
+            event.sender_domain.as_deref(),
+            Some("small-journal.example.org")
+        );
+
+        let blocking = CandidateRules {
+            blocked_domains: vec!["example.org".into()],
+            ..CandidateRules::default()
+        };
+        let editor = message(
+            EDITOR,
+            "Decision on manuscript JSS-2026-0142",
+            "major revision",
+        );
+        assert!(extract(&editor, &CandidateRules::default()).is_some());
+        assert!(extract(&editor, &blocking).is_none(), "blocking wins");
     }
 
     #[test]

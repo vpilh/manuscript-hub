@@ -4,7 +4,10 @@ use mh_core::{
     CalendarDate, Confidence, EditorialStatus, Field, ProposedEvent, Provider, ReviewState,
     SourceRef,
 };
-use mh_store::{DbKey, EventEdits, MatchKind, RecordOutcome, ReviewDecision, Store, StoreError};
+use mh_store::{
+    DbKey, EventEdits, MatchKind, RecordOutcome, ReviewDecision, SenderRule, SenderRuleKind, Store,
+    StoreError,
+};
 
 const DAY: i64 = 86_400;
 const T0: i64 = 1_793_275_200; // 2026-10-29T12:00:00Z
@@ -41,6 +44,7 @@ fn proposal(
         requested_action: None,
         parser_version: "test".into(),
         reason: "test".into(),
+        sender_domain: Some("jss.example.org".into()),
         uncertainty: Vec::new(),
         review: ReviewState::Proposed,
     }
@@ -719,4 +723,64 @@ fn a_confirmed_update_fills_in_a_missing_title_but_never_replaces_one() {
         store.manuscripts().unwrap()[0].title.as_deref(),
         Some("Invented Methods for Example Data")
     );
+}
+
+#[test]
+fn an_ignore_rule_sets_aside_pending_mail_from_that_sender() {
+    let (mut store, account) = setup();
+    let confirmed = record(
+        &mut store,
+        account,
+        &proposal(
+            "m1",
+            T0,
+            JSS,
+            Some("JSS-1"),
+            Some(EditorialStatus::Submitted),
+            None,
+        ),
+    );
+    store.review(confirmed, confirm()).unwrap();
+    record(
+        &mut store,
+        account,
+        &proposal("m2", T0 + DAY, JSS, Some("JSS-2"), None, None),
+    );
+    let mut other = proposal("m3", T0 + DAY, JSS, Some("JSS-3"), None, None);
+    other.sender_domain = Some("other.example.com".into());
+    record(&mut store, account, &other);
+
+    let dismissed = store
+        .set_sender_rule("Editor@Example.org", SenderRuleKind::Ignore)
+        .unwrap();
+    assert_eq!(
+        dismissed, 1,
+        "jss.example.org is a subdomain of example.org"
+    );
+    assert_eq!(store.review_queue().unwrap().len(), 1);
+    assert_eq!(
+        store
+            .timeline(store.manuscripts().unwrap()[0].id)
+            .unwrap()
+            .len(),
+        1,
+        "confirmed stays"
+    );
+    assert_eq!(
+        store.sender_rules().unwrap(),
+        [SenderRule {
+            domain: "example.org".into(),
+            kind: SenderRuleKind::Ignore
+        }]
+    );
+
+    store
+        .set_sender_rule("example.org", SenderRuleKind::Journal)
+        .unwrap();
+    assert_eq!(
+        store.sender_rules().unwrap()[0].kind,
+        SenderRuleKind::Journal
+    );
+    store.remove_sender_rule("example.org").unwrap();
+    assert!(store.sender_rules().unwrap().is_empty());
 }

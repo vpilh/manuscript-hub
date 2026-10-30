@@ -8,6 +8,7 @@ import type {
   EditorialStatus,
   MailAccount,
   ManuscriptSummary,
+  SenderRule,
   ProposedEvent,
   QueueItem,
   ReviewDecision,
@@ -54,6 +55,7 @@ function proposal(
     requested_action: action ? field(action) : null,
     parser_version: "seed-0.1",
     reason: "Sent from editorialmanager.com, a known journal or editorial system.",
+    sender_domain: "jss.example.org",
     uncertainty,
     review: "proposed",
   };
@@ -213,6 +215,10 @@ const timelines: Record<number, TimelineEntry[]> = {
 };
 
 let accounts: MailAccount[] = [];
+let senderRules: SenderRule[] = [];
+
+const matchesDomain = (domain: string | null, rule: string) =>
+  !!domain && (domain === rule || domain.endsWith(`.${rule}`));
 
 const wait = <T,>(value: T) => new Promise<T>((resolve) => setTimeout(() => resolve(value), 120));
 
@@ -271,7 +277,7 @@ function withPendingCounts(): ManuscriptSummary[] {
 }
 
 export const mockApi: Api = {
-  appInfo: () => wait({ version: "0.1.0", parser_version: "seed-0.6", storage_error: null }),
+  appInfo: () => wait({ version: "0.1.0", parser_version: "seed-0.7", storage_error: null }),
   scanDemoMailbox: () =>
     wait({ messages: 6, proposed: 0, already_seen: 5, not_journal_mail: 1 }),
   reviewQueue: () => wait(structuredClone(queue)),
@@ -325,6 +331,26 @@ export const mockApi: Api = {
     accounts = accounts.map((a) =>
       a.id === accountId ? { ...a, settings: { ...a.settings, check_every_minutes: minutes } } : a,
     );
+    await wait(undefined);
+  },
+  senderRules: () => wait(structuredClone(senderRules)),
+  setSenderRule: async (value, kind) => {
+    const domain = value.trim().split("@").pop()!.replace(/\.$/, "").toLowerCase();
+    if (!/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(domain)) {
+      throw new Error(`"${value.trim()}" isn't a mail domain. Enter something like journal.example.org.`);
+    }
+    senderRules = [...senderRules.filter((r) => r.domain !== domain), { domain, kind }].sort(
+      (a, b) => a.domain.localeCompare(b.domain),
+    );
+    const before = queue.length;
+    if (kind === "ignore") {
+      queue = queue.filter((q) => !matchesDomain(q.proposal.sender_domain, domain));
+    }
+    await wait(undefined);
+    return before - queue.length;
+  },
+  removeSenderRule: async (domain) => {
+    senderRules = senderRules.filter((r) => r.domain !== domain);
     await wait(undefined);
   },
   // The browser preview has no scheduler, so there are no events to deliver.

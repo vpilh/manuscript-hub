@@ -1,8 +1,16 @@
 import { TriangleAlert } from "lucide-react";
 import { useId, useState, type FormEvent } from "react";
 
-import type { MailAccount, MailProvider, NewMailAccount, Security } from "../lib/api";
+import type {
+  MailAccount,
+  MailProvider,
+  NewMailAccount,
+  Security,
+  SenderRule,
+  SenderRuleKind,
+} from "../lib/api";
 import { checkedAgo } from "../lib/format";
+import { SenderRules } from "./SenderRules";
 
 interface Props {
   accounts: MailAccount[];
@@ -14,6 +22,9 @@ interface Props {
   onSync: (accountId: number) => Promise<void>;
   onSetInterval: (accountId: number, minutes: number) => Promise<void>;
   onDisconnect: (accountId: number) => Promise<void>;
+  senderRules: SenderRule[];
+  onAddRule: (domain: string, kind: SenderRuleKind) => Promise<void>;
+  onRemoveRule: (domain: string) => Promise<void>;
 }
 
 const INTERVALS = [
@@ -53,6 +64,13 @@ export function Mailboxes(props: Props) {
             />
           ))}
         </ul>
+      )}
+      {accounts.length > 0 && (
+        <SenderRules
+          rules={props.senderRules}
+          onAdd={props.onAddRule}
+          onRemove={props.onRemoveRule}
+        />
       )}
       <ConnectForm
         first={accounts.length === 0}

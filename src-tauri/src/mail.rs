@@ -13,12 +13,11 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use mh_connectors::imap::{check_account, Folder, ImapProvider, ImapSettings};
 use mh_connectors::{MailProvider, ProviderError, SyncCursor};
 use mh_core::Provider;
-use mh_parser::CandidateRules;
 use mh_store::{AccountSummary, Store};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
 
-use crate::{keychain, record_batch, AppState, ScanSummary};
+use crate::{candidate_rules, keychain, record_batch, AppState, ScanSummary};
 
 #[derive(Serialize)]
 pub struct MailAccount {
@@ -314,14 +313,12 @@ fn sync_folders(
     // Gmail's All Mail includes what the user sent; their own messages
     // about a manuscript aren't news from the journal.
     let username = account.settings.username.to_lowercase();
-    let rules = CandidateRules {
-        own_addresses: username
-            .contains('@')
-            .then_some(username)
-            .into_iter()
-            .collect(),
-        ..CandidateRules::default()
-    };
+    let mut rules = candidate_rules(&*lock(store)?).map_err(|e| e.to_string())?;
+    rules.own_addresses = username
+        .contains('@')
+        .then_some(username)
+        .into_iter()
+        .collect();
     let mut summary = ScanSummary::default();
     for folder in &account.settings.folders {
         let mut provider = ImapProvider::new(
