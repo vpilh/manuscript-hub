@@ -360,7 +360,8 @@ fn decodes_mime_and_german_charsets() {
         message.from,
         "\"Zeitschrift für Synthetische Studien\" <redaktion@zss.example.org>"
     );
-    assert!(message.body.contains("zurück"), "{:?}", message.body);
+    // No body in the failure message: bodies never reach logs, not even in CI.
+    assert!(message.body.contains("zurück"));
     assert!(!message.body.contains("HTML version"));
     assert_eq!(message.source.received_at, 1_793_003_400);
 }
