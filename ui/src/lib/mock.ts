@@ -6,6 +6,7 @@ import type {
   Api,
   CalendarDate,
   EditorialStatus,
+  MailAccount,
   ManuscriptSummary,
   ProposedEvent,
   QueueItem,
@@ -210,6 +211,8 @@ const timelines: Record<number, TimelineEntry[]> = {
   ],
 };
 
+let accounts: MailAccount[] = [];
+
 const wait = <T,>(value: T) => new Promise<T>((resolve) => setTimeout(() => resolve(value), 120));
 
 function decide(eventId: number, decision: ReviewDecision) {
@@ -267,7 +270,7 @@ function withPendingCounts(): ManuscriptSummary[] {
 }
 
 export const mockApi: Api = {
-  appInfo: () => wait({ version: "0.1.0", parser_version: "seed-0.1", storage_error: null }),
+  appInfo: () => wait({ version: "0.1.0", parser_version: "seed-0.4", storage_error: null }),
   scanDemoMailbox: () =>
     wait({ messages: 6, proposed: 0, already_seen: 5, not_journal_mail: 1 }),
   reviewQueue: () => wait(structuredClone(queue)),
@@ -277,4 +280,60 @@ export const mockApi: Api = {
   },
   manuscripts: () => wait(structuredClone(withPendingCounts())),
   timeline: (manuscriptId) => wait(structuredClone(timelines[manuscriptId] ?? [])),
+  mergeManuscripts: async (fromId, intoId) => {
+    const into = manuscripts.find((m) => m.id === intoId);
+    if (!into || fromId === intoId) throw new Error("manuscript not found");
+    timelines[intoId] = [...(timelines[intoId] ?? []), ...(timelines[fromId] ?? [])].sort(
+      (a, b) => b.occurred_at - a.occurred_at,
+    );
+    delete timelines[fromId];
+    queue = queue.map((q) =>
+      q.suggested_manuscript?.id === fromId
+        ? { ...q, suggested_manuscript: { ...q.suggested_manuscript, id: intoId } }
+        : q,
+    );
+    const newest = timelines[intoId].find((e) => e.status);
+    if (newest) {
+      into.status = newest.status;
+      into.status_since = newest.occurred_at;
+    }
+    manuscripts = manuscripts.filter((m) => m.id !== fromId);
+    await wait(undefined);
+  },
+  mailAccounts: () => wait(structuredClone(accounts)),
+  // The password "wrong" simulates a rejected login.
+  connectMailAccount: async ({ provider, alias, settings, password }) => {
+    await wait(undefined);
+    if (password === "wrong") {
+      throw new Error(
+        "The server rejected the user name or password. For Gmail, use an app password, not your Google password.",
+      );
+    }
+    const account: MailAccount = {
+      id: Math.max(0, ...accounts.map((a) => a.id)) + 1,
+      provider,
+      alias,
+      settings: {
+        ...settings,
+        folders: settings.folders.length
+          ? settings.folders
+          : [provider === "gmail" ? "[Gmail]/All Mail" : "INBOX"],
+      },
+      last_sync_at: null,
+      last_error: null,
+    };
+    accounts = [...accounts, account];
+    return structuredClone(account);
+  },
+  disconnectMailAccount: async (accountId) => {
+    accounts = accounts.filter((a) => a.id !== accountId);
+    await wait(undefined);
+  },
+  syncMailAccount: async (accountId) => {
+    await new Promise((resolve) => setTimeout(resolve, 900));
+    accounts = accounts.map((a) =>
+      a.id === accountId ? { ...a, last_sync_at: Math.floor(Date.now() / 1000) } : a,
+    );
+    return { messages: 214, proposed: 0, already_seen: 5, not_journal_mail: 209 };
+  },
 };

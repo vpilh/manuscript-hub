@@ -1,4 +1,4 @@
-import type { CalendarDate, EditorialStatus } from "./api";
+import type { CalendarDate, EditorialStatus, ScanSummary } from "./api";
 
 const STATUS_LABELS: Record<EditorialStatus, string> = {
   submitted: "Submitted",
@@ -86,4 +86,22 @@ export function parseIsoDate(value: string): CalendarDate | null {
   const check = new Date(Date.UTC(year, month - 1, day));
   if (check.getUTCMonth() !== month - 1 || check.getUTCDate() !== day) return null;
   return { year, month, day };
+}
+
+/** "just now", "5 minutes ago", "3 hours ago", then a date. */
+export function checkedAgo(unixSeconds: number, nowSeconds: number): string {
+  const minutes = Math.floor((nowSeconds - unixSeconds) / 60);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return minutes === 1 ? "1 minute ago" : `${minutes} minutes ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return hours === 1 ? "1 hour ago" : `${hours} hours ago`;
+  return `on ${formatTimestamp(unixSeconds)}`;
+}
+
+/** The outcome of a mailbox check, in one sentence. */
+export function scanSentence(scan: ScanSummary): string {
+  if (scan.messages === 0) return "No new mail since the last check.";
+  const read = scan.messages === 1 ? "Read 1 message" : `Read ${scan.messages} messages`;
+  const fresh = scan.proposed === 1 ? "1 new to review" : `${scan.proposed} new to review`;
+  return `${read}: ${fresh}, ${scan.already_seen} seen before, ${scan.not_journal_mail} not journal mail.`;
 }

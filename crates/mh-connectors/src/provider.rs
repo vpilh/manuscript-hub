@@ -1,9 +1,11 @@
 use std::fmt;
 
 use mh_core::{Provider, TransientMessage};
+use serde::{Deserialize, Serialize};
 
-/// Where incremental sync resumes (FR05).
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Where incremental sync resumes (FR05). Stored as JSON in `sync_cursors`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SyncCursor {
     GmailHistory {
         history_id: u64,

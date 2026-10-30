@@ -9,9 +9,10 @@ interface Props {
   manuscripts: ManuscriptSummary[];
   initialOpenId: number | null;
   onOpenReview: () => void;
+  onMerge: (fromId: number, intoId: number) => Promise<void>;
 }
 
-export function Manuscripts({ manuscripts, initialOpenId, onOpenReview }: Props) {
+export function Manuscripts({ manuscripts, initialOpenId, onOpenReview, onMerge }: Props) {
   const [openId, setOpenId] = useState<number | null>(initialOpenId);
 
   if (manuscripts.length === 0) {
@@ -34,6 +35,11 @@ export function Manuscripts({ manuscripts, initialOpenId, onOpenReview }: Props)
           manuscript={m}
           open={openId === m.id}
           onToggle={() => setOpenId(openId === m.id ? null : m.id)}
+          others={manuscripts.filter((other) => other.id !== m.id)}
+          onMerge={async (intoId) => {
+            await onMerge(m.id, intoId);
+            setOpenId(intoId);
+          }}
         />
       ))}
     </ul>
@@ -44,6 +50,8 @@ function LedgerRow(props: {
   manuscript: ManuscriptSummary;
   open: boolean;
   onToggle: () => void;
+  others: ManuscriptSummary[];
+  onMerge: (intoId: number) => Promise<void>;
 }) {
   const { manuscript: m, open, onToggle } = props;
   const panelId = useId();
@@ -82,6 +90,7 @@ function LedgerRow(props: {
       {open && (
         <div id={panelId}>
           <Timeline manuscriptId={m.id} />
+          {props.others.length > 0 && <MergeControl others={props.others} onMerge={props.onMerge} />}
         </div>
       )}
     </li>
@@ -116,7 +125,7 @@ function Timeline({ manuscriptId }: { manuscriptId: number }) {
               {e.review_state === "edited" && <span className="since"> (corrected by you)</span>}
               {e.review_state === "proposed" && <span className="since"> (waiting for review)</span>}
             </p>
-            {e.original_phrase && <p className="step-quote">“{e.original_phrase}”</p>}
+            {e.original_phrase && <p className="step-phrase">{e.original_phrase}</p>}
             {e.deadline && <p className="since">Due {longDate(e.deadline)}</p>}
             {e.source && (
               <p className="since source">
@@ -127,5 +136,66 @@ function Timeline({ manuscriptId }: { manuscriptId: number }) {
         </li>
       ))}
     </ol>
+  );
+}
+
+/** Combines two records of the same paper; the chosen one keeps its name and ID. */
+function MergeControl(props: {
+  others: ManuscriptSummary[];
+  onMerge: (intoId: number) => Promise<void>;
+}) {
+  const [target, setTarget] = useState<number | null>(null);
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const chosen = props.others.find((m) => m.id === target);
+  const name = (m: ManuscriptSummary) => `${m.journal}, ${m.external_id ?? "no ID"}`;
+
+  return (
+    <div className="merge">
+      <label className="field">
+        <span>Same paper as another entry?</span>
+        <select
+          value={target ?? ""}
+          onChange={(e) => {
+            setTarget(e.target.value ? Number(e.target.value) : null);
+            setConfirming(false);
+          }}
+        >
+          <option value="">Choose a manuscript</option>
+          {props.others.map((m) => (
+            <option key={m.id} value={m.id}>
+              {name(m)}
+            </option>
+          ))}
+        </select>
+      </label>
+      {chosen &&
+        (confirming ? (
+          <div className="decide">
+            <span className="confirm-text">
+              Move every update here to {name(chosen)} and remove this entry? This can't be undone.
+            </span>
+            <button
+              disabled={busy}
+              onClick={async () => {
+                setBusy(true);
+                await props.onMerge(chosen.id);
+                setBusy(false);
+              }}
+            >
+              Merge
+            </button>
+            <button className="quiet" onClick={() => setConfirming(false)}>
+              Cancel
+            </button>
+          </div>
+        ) : (
+          <div className="decide">
+            <button className="secondary" onClick={() => setConfirming(true)}>
+              Merge into {chosen.external_id ?? chosen.journal}
+            </button>
+          </div>
+        ))}
+    </div>
   );
 }

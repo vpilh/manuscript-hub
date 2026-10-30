@@ -26,11 +26,14 @@ interface Props {
   items: QueueItem[];
   manuscripts: ManuscriptSummary[];
   scanning: boolean;
+  hasMailboxes: boolean;
   onScan: () => void;
+  onOpenMailboxes: () => void;
   onDecide: (eventId: number, decision: ReviewDecision) => Promise<void>;
 }
 
-export function ReviewQueue({ items, manuscripts, scanning, onScan, onDecide }: Props) {
+export function ReviewQueue(props: Props) {
+  const { items, manuscripts, scanning, hasMailboxes, onScan, onOpenMailboxes, onDecide } = props;
   if (items.length === 0) {
     return (
       <div className="empty">
@@ -39,9 +42,18 @@ export function ReviewQueue({ items, manuscripts, scanning, onScan, onDecide }: 
           When journal mail arrives, each message shows up here with the words it was read from.
           Nothing is saved until you decide.
         </p>
-        <button className="secondary" onClick={onScan} disabled={scanning}>
-          {scanning ? "Scanning the demo mailbox…" : "Scan the demo mailbox"}
-        </button>
+        {hasMailboxes ? (
+          <button className="secondary" onClick={onOpenMailboxes}>
+            Check your mailboxes
+          </button>
+        ) : (
+          <div className="decide">
+            <button onClick={onOpenMailboxes}>Connect a mailbox</button>
+            <button className="secondary" onClick={onScan} disabled={scanning}>
+              {scanning ? "Scanning the demo mailbox…" : "Try the demo mailbox"}
+            </button>
+          </div>
+        )}
       </div>
     );
   }

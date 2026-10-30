@@ -489,6 +489,15 @@ impl Store {
 }
 
 /// Exact manuscript ID first, then title similarity (FR10).
+/// IDs with a letter prefix and several digits (`JBF-D-26-01235`) are issued
+/// by editorial systems and don't repeat across journals; short ones (`MS-001`)
+/// might.
+fn is_distinctive_id(id: &str) -> bool {
+    let letters = id.chars().filter(char::is_ascii_alphabetic).count();
+    let digits = id.chars().filter(char::is_ascii_digit).count();
+    id.len() >= 10 && letters >= 2 && digits >= 5
+}
+
 fn find_match(
     conn: &Connection,
     journal: Option<&str>,
@@ -516,6 +525,23 @@ fn find_match(
                         rationale: format!(
                             "No tracked manuscript has ID {id}; confirming adds it."
                         ),
+                    },
+                    // Long IDs like JBF-D-26-01235 are unique in practice, so
+                    // a different journal name means the name was read
+                    // differently (a submission system's sender name, say).
+                    None if is_distinctive_id(id) && rows.len() == 1 => Match {
+                        kind: MatchKind::IdOnly,
+                        manuscript_id: Some(rows[0].0),
+                        rationale: format!(
+                            "Same manuscript ID {id} as the manuscript at {}; this message \
+                             names the journal \"{journal}\".",
+                            rows[0].1
+                        ),
+                    },
+                    None if is_distinctive_id(id) => Match {
+                        kind: MatchKind::Ambiguous,
+                        manuscript_id: None,
+                        rationale: format!("{} tracked manuscripts use ID {id}.", rows.len()),
                     },
                     None => Match {
                         kind: MatchKind::None,
