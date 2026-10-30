@@ -32,6 +32,7 @@ fn proposal(message_id: &str) -> ProposedEvent {
         deadline: None,
         requested_action: None,
         parser_version: "test".into(),
+        reason: "test".into(),
         uncertainty: Vec::new(),
         review: ReviewState::Proposed,
     }

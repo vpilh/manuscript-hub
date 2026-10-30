@@ -66,6 +66,32 @@ fn review_state_str(state: ReviewState) -> &'static str {
     }
 }
 
+/// Only confirmed or corrected events can be amended or removed; proposals go
+/// through [`Store::review`].
+fn require_reviewed(conn: &Connection, event_id: i64) -> Result<(), StoreError> {
+    let state: String = conn
+        .query_row(
+            "SELECT review_state FROM events WHERE id = ?1",
+            [event_id],
+            |r| r.get(0),
+        )
+        .optional()?
+        .ok_or(StoreError::NotFound {
+            entity: "event",
+            id: event_id,
+        })?;
+    match parse_review_state(&state) {
+        ReviewState::Confirmed | ReviewState::Edited => Ok(()),
+        ReviewState::Proposed => Err(StoreError::Format(format!(
+            "event {event_id} is still waiting for review"
+        ))),
+        _ => Err(StoreError::NotFound {
+            entity: "event",
+            id: event_id,
+        }),
+    }
+}
+
 fn parse_review_state(value: &str) -> ReviewState {
     match value {
         "confirmed" => ReviewState::Confirmed,
@@ -361,6 +387,41 @@ impl Store {
                     ],
                 )?,
             };
+            Ok(())
+        })
+    }
+
+    /// Corrects an update the user already confirmed. Only the user's own
+    /// action changes confirmed data (FR11); the parser's proposal and the
+    /// evidence phrase stay stored with the event.
+    pub fn amend_event(&mut self, event_id: i64, edits: EventEdits) -> Result<(), StoreError> {
+        self.write(|tx| {
+            require_reviewed(tx, event_id)?;
+            tx.execute(
+                "UPDATE events SET review_state = 'edited', reviewed_at = ?2,
+                     status = ?3, deadline = ?4, requested_action = ?5
+                 WHERE id = ?1",
+                params![
+                    event_id,
+                    now(),
+                    edits.status.map(EditorialStatus::as_str),
+                    edits.deadline.map(|d| d.to_string()),
+                    edits.requested_action,
+                ],
+            )?;
+            Ok(())
+        })
+    }
+
+    /// Takes a confirmed update out of its manuscript's timeline and current
+    /// state. The source message stays recorded, so it is never proposed again.
+    pub fn remove_event(&mut self, event_id: i64) -> Result<(), StoreError> {
+        self.write(|tx| {
+            require_reviewed(tx, event_id)?;
+            tx.execute(
+                "UPDATE events SET review_state = 'ignored', reviewed_at = ?2 WHERE id = ?1",
+                params![event_id, now()],
+            )?;
             Ok(())
         })
     }

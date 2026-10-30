@@ -40,6 +40,7 @@ fn proposal(
         deadline: deadline.and_then(|(y, m, d)| field(CalendarDate::new(y, m, d).unwrap())),
         requested_action: None,
         parser_version: "test".into(),
+        reason: "test".into(),
         uncertainty: Vec::new(),
         review: ReviewState::Proposed,
     }
@@ -530,4 +531,104 @@ fn merging_combines_timelines_and_derives_the_newest_state() {
         store.merge_manuscripts(wrong, right),
         Err(StoreError::NotFound { .. })
     ));
+}
+
+#[test]
+fn confirmed_updates_can_be_corrected_or_removed_by_the_user() {
+    let (mut store, account) = setup();
+    let submitted = record(
+        &mut store,
+        account,
+        &proposal(
+            "m1",
+            T0,
+            JSS,
+            Some("JSS-1"),
+            Some(EditorialStatus::Submitted),
+            None,
+        ),
+    );
+    store.review(submitted, confirm()).unwrap();
+    let misread = record(
+        &mut store,
+        account,
+        &proposal(
+            "m2",
+            T0 + DAY,
+            JSS,
+            Some("JSS-1"),
+            Some(EditorialStatus::Accepted),
+            None,
+        ),
+    );
+    store.review(misread, confirm()).unwrap();
+    let manuscript = store.manuscripts().unwrap()[0].id;
+    assert_eq!(
+        store.manuscripts().unwrap()[0].status,
+        Some(EditorialStatus::Accepted)
+    );
+
+    store
+        .amend_event(
+            misread,
+            EventEdits {
+                status: Some(EditorialStatus::UnderReview),
+                deadline: None,
+                requested_action: None,
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        store.manuscripts().unwrap()[0].status,
+        Some(EditorialStatus::UnderReview)
+    );
+    let step = &store.timeline(manuscript).unwrap()[0];
+    assert_eq!(step.review_state, ReviewState::Edited);
+    assert_eq!(
+        step.original_phrase.as_deref(),
+        Some("phrase"),
+        "evidence is kept"
+    );
+
+    store.remove_event(misread).unwrap();
+    assert_eq!(
+        store.manuscripts().unwrap()[0].status,
+        Some(EditorialStatus::Submitted)
+    );
+    assert_eq!(store.timeline(manuscript).unwrap().len(), 1);
+    // The message stays recorded, so a rescan doesn't bring it back.
+    let again = store
+        .record_proposal(
+            account,
+            &proposal(
+                "m2",
+                T0 + DAY,
+                JSS,
+                Some("JSS-1"),
+                Some(EditorialStatus::Accepted),
+                None,
+            ),
+        )
+        .unwrap();
+    assert!(matches!(again, RecordOutcome::Duplicate));
+    assert!(store.remove_event(misread).is_err(), "already removed");
+}
+
+#[test]
+fn proposals_cannot_be_amended_outside_review() {
+    let (mut store, account) = setup();
+    let pending = record(
+        &mut store,
+        account,
+        &proposal(
+            "m1",
+            T0,
+            JSS,
+            Some("JSS-1"),
+            Some(EditorialStatus::Submitted),
+            None,
+        ),
+    );
+    assert!(store.remove_event(pending).is_err());
+    assert_eq!(store.review_queue().unwrap().len(), 1);
 }

@@ -113,6 +113,10 @@ pub struct ProposedEvent {
     pub requested_action: Option<Field<String>>,
     /// Version of the rule set that produced this proposal, for provenance.
     pub parser_version: String,
+    /// Why the message was treated as editorial mail, shown with the proposal.
+    /// Empty for proposals stored before parser seed-0.5.
+    #[serde(default)]
+    pub reason: String,
     /// Why this message needs a human decision, if anything is uncertain.
     pub uncertainty: Vec<String>,
     pub review: ReviewState,

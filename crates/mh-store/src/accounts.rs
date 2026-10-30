@@ -74,6 +74,26 @@ impl Store {
             })
     }
 
+    pub fn update_account_settings(
+        &mut self,
+        id: i64,
+        settings_json: &str,
+    ) -> Result<(), StoreError> {
+        self.write(|tx| {
+            let updated = tx.execute(
+                "UPDATE accounts SET settings_json = ?2 WHERE id = ?1",
+                params![id, settings_json],
+            )?;
+            if updated == 0 {
+                return Err(StoreError::NotFound {
+                    entity: "account",
+                    id,
+                });
+            }
+            Ok(())
+        })
+    }
+
     /// Removes an account with its cursors and the proposals still waiting for
     /// review. Confirmed events stay in their manuscripts' timelines; they only
     /// lose the link to the source message.

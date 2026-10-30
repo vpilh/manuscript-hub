@@ -10,7 +10,8 @@ use mh_connectors::{mock::MockProvider, MailProvider};
 use mh_core::{Provider, TransientMessage};
 use mh_parser::{extract, CandidateRules, PARSER_VERSION};
 use mh_store::{
-    ManuscriptSummary, QueueItem, RecordOutcome, ReviewDecision, Store, StoreError, TimelineEntry,
+    EventEdits, ManuscriptSummary, QueueItem, RecordOutcome, ReviewDecision, Store, StoreError,
+    TimelineEntry,
 };
 use serde::Serialize;
 use tauri::{Manager, State};
@@ -56,7 +57,7 @@ struct AppInfo {
     storage_error: Option<String>,
 }
 
-#[derive(Default, Serialize)]
+#[derive(Clone, Default, Serialize)]
 struct ScanSummary {
     messages: usize,
     proposed: usize,
@@ -141,6 +142,16 @@ fn timeline(state: State<'_, AppState>, manuscript_id: i64) -> Result<Vec<Timeli
 }
 
 #[tauri::command]
+fn amend_event(state: State<'_, AppState>, event_id: i64, edits: EventEdits) -> Result<(), String> {
+    state.with_store(|store| store.amend_event(event_id, edits))
+}
+
+#[tauri::command]
+fn remove_event(state: State<'_, AppState>, event_id: i64) -> Result<(), String> {
+    state.with_store(|store| store.remove_event(event_id))
+}
+
+#[tauri::command]
 fn merge_manuscripts(state: State<'_, AppState>, from_id: i64, into_id: i64) -> Result<(), String> {
     state.with_store(|store| store.merge_manuscripts(from_id, into_id))
 }
@@ -160,6 +171,8 @@ fn main() {
         .setup(|app| {
             let store = open_store(app).map(|store| Arc::new(Mutex::new(store)));
             app.manage(AppState(store));
+            app.manage(mail::Checks::default());
+            mail::start_background_checks(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -173,7 +186,10 @@ fn main() {
             mail::mail_accounts,
             mail::connect_mail_account,
             mail::disconnect_mail_account,
-            mail::sync_mail_account
+            mail::sync_mail_account,
+            mail::set_check_interval,
+            amend_event,
+            remove_event
         ])
         .run(tauri::generate_context!())
         .expect("failed to start Manuscript Hub");

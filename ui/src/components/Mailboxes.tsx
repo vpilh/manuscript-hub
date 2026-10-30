@@ -1,31 +1,40 @@
 import { TriangleAlert } from "lucide-react";
 import { useId, useState, type FormEvent } from "react";
 
-import type { MailAccount, MailProvider, NewMailAccount, ScanSummary, Security } from "../lib/api";
-import { checkedAgo, scanSentence } from "../lib/format";
+import type { MailAccount, MailProvider, NewMailAccount, Security } from "../lib/api";
+import { checkedAgo } from "../lib/format";
 
 interface Props {
   accounts: MailAccount[];
+  /** Accounts being checked right now, including scheduled checks. */
+  checking: ReadonlySet<number>;
+  /** The outcome of each account's latest check in this session. */
+  results: Readonly<Record<number, string>>;
   onConnect: (account: NewMailAccount) => Promise<MailAccount>;
-  onSync: (accountId: number) => Promise<ScanSummary>;
+  onSync: (accountId: number) => Promise<void>;
+  onSetInterval: (accountId: number, minutes: number) => Promise<void>;
   onDisconnect: (accountId: number) => Promise<void>;
 }
 
-export function Mailboxes({ accounts, onConnect, onSync, onDisconnect }: Props) {
-  // Last check result per account, shown next to it.
-  const [results, setResults] = useState<Record<number, string>>({});
-  const [syncing, setSyncing] = useState<number | null>(null);
+const INTERVALS = [
+  { minutes: 15, label: "Every 15 minutes" },
+  { minutes: 60, label: "Every hour" },
+  { minutes: 240, label: "Every 4 hours" },
+  { minutes: 0, label: "Only when I click" },
+];
+
+export function Mailboxes(props: Props) {
+  const { accounts, checking, results, onConnect, onSync, onSetInterval, onDisconnect } = props;
+  // Covers the time between a click and the backend's "started" event.
+  const [requested, setRequested] = useState<number | null>(null);
 
   async function sync(accountId: number) {
-    setSyncing(accountId);
+    setRequested(accountId);
     try {
-      const summary = await onSync(accountId);
-      setResults((r) => ({ ...r, [accountId]: scanSentence(summary) }));
-    } catch {
-      // The error is stored on the account and shown in its row.
-      setResults((r) => ({ ...r, [accountId]: "" }));
+      await onSync(accountId);
+    } finally {
+      setRequested(null);
     }
-    setSyncing(null);
   }
 
   return (
@@ -37,9 +46,9 @@ export function Mailboxes({ accounts, onConnect, onSync, onDisconnect }: Props) 
               key={account.id}
               account={account}
               result={results[account.id] ?? null}
-              syncing={syncing === account.id}
-              busy={syncing !== null}
+              syncing={checking.has(account.id) || requested === account.id}
               onSync={() => sync(account.id)}
+              onSetInterval={(minutes) => onSetInterval(account.id, minutes)}
               onDisconnect={() => onDisconnect(account.id)}
             />
           ))}
@@ -49,7 +58,7 @@ export function Mailboxes({ accounts, onConnect, onSync, onDisconnect }: Props) 
         first={accounts.length === 0}
         onConnect={async (draft) => {
           const account = await onConnect(draft);
-          void sync(account.id);
+          void sync(account.id).catch(() => {});
         }}
       />
     </>
@@ -60,11 +69,12 @@ function AccountRow(props: {
   account: MailAccount;
   result: string | null;
   syncing: boolean;
-  busy: boolean;
   onSync: () => void;
+  onSetInterval: (minutes: number) => Promise<void>;
   onDisconnect: () => Promise<void>;
 }) {
-  const { account, result, syncing, busy } = props;
+  const { account, result, syncing } = props;
+  const intervalId = useId();
   const [confirming, setConfirming] = useState(false);
   const { settings } = account;
   const gmail = account.provider === "gmail";
@@ -88,6 +98,20 @@ function AccountRow(props: {
             <span className="since">Not checked yet</span>
           )}
           {!syncing && result && <span className="since">{result}</span>}
+          <label className="interval" htmlFor={intervalId}>
+            <span className="since">Checks</span>
+            <select
+              id={intervalId}
+              value={settings.check_every_minutes}
+              onChange={(e) => void props.onSetInterval(Number(e.target.value))}
+            >
+              {INTERVALS.map((option) => (
+                <option key={option.minutes} value={option.minutes}>
+                  {option.label.toLowerCase()}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
       </div>
 
@@ -113,7 +137,7 @@ function AccountRow(props: {
         </div>
       ) : (
         <div className="decide">
-          <button onClick={props.onSync} disabled={busy}>
+          <button onClick={props.onSync} disabled={syncing}>
             {syncing ? "Checking…" : "Check for new mail"}
           </button>
           <button className="quiet" onClick={() => setConfirming(true)} disabled={syncing}>
@@ -163,6 +187,7 @@ function ConnectForm(props: { first: boolean; onConnect: (draft: NewMailAccount)
           username: username.trim(),
           folders: gmail ? [] : [folder.trim() || "INBOX"],
           backfill_days: backfill,
+          check_every_minutes: 15,
         },
         password,
       });

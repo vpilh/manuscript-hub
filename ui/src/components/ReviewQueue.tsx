@@ -1,25 +1,16 @@
 import { TriangleAlert } from "lucide-react";
 import { useId, useState } from "react";
 
-import type {
-  EditorialStatus,
-  EventEdits,
-  ManuscriptSummary,
-  QueueItem,
-  ReviewDecision,
-} from "../lib/api";
+import type { ManuscriptSummary, QueueItem, ReviewDecision } from "../lib/api";
 import {
-  ALL_STATUSES,
   confidenceWord,
   daysUntil,
   formatTimestamp,
-  isoDate,
   isUrgent,
   longDate,
-  parseIsoDate,
   relativeDue,
-  statusLabel,
 } from "../lib/format";
+import { EventForm } from "./EventForm";
 import { StatusMark } from "./StatusMark";
 
 interface Props {
@@ -122,6 +113,7 @@ function Proposal(props: {
           From {journal?.value ?? "an unknown sender"}, received{" "}
           {formatTimestamp(proposal.source.received_at)}
         </figcaption>
+        {proposal.reason && <p className="reason">Shown because: {proposal.reason}</p>}
       </figure>
 
       <dl className="facts">
@@ -198,8 +190,10 @@ function Proposal(props: {
       )}
 
       {editing ? (
-        <EditForm
-          item={item}
+        <EventForm
+          status={proposal.status?.value ?? null}
+          deadline={proposal.deadline?.value ?? null}
+          action={proposal.requested_action?.value ?? null}
           busy={busy}
           submitLabel={targetName ? "Save and add" : "Save and start tracking"}
           onCancel={() => setEditing(false)}
@@ -225,80 +219,5 @@ function Proposal(props: {
         </div>
       )}
     </li>
-  );
-}
-
-function EditForm(props: {
-  item: QueueItem;
-  busy: boolean;
-  submitLabel: string;
-  onCancel: () => void;
-  onSave: (edits: EventEdits) => void;
-}) {
-  const { proposal } = props.item;
-  const [status, setStatus] = useState<string>(proposal.status?.value ?? "");
-  const [deadline, setDeadline] = useState(
-    proposal.deadline ? isoDate(proposal.deadline.value) : "",
-  );
-  const [action, setAction] = useState(proposal.requested_action?.value ?? "");
-  const deadlineInvalid = deadline !== "" && parseIsoDate(deadline) === null;
-  const deadlineError = useId();
-
-  return (
-    <form
-      className="corrections"
-      onSubmit={(e) => {
-        e.preventDefault();
-        props.onSave({
-          status: (status || null) as EditorialStatus | null,
-          deadline: parseIsoDate(deadline),
-          requested_action: action.trim() || null,
-        });
-      }}
-    >
-      <label className="field">
-        <span>Status</span>
-        <select value={status} onChange={(e) => setStatus(e.target.value)}>
-          <option value="">No status</option>
-          {ALL_STATUSES.map((s) => (
-            <option key={s} value={s}>
-              {statusLabel(s)}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label className="field">
-        <span>Deadline</span>
-        <input
-          type="date"
-          value={deadline}
-          aria-invalid={deadlineInvalid}
-          aria-describedby={deadlineInvalid ? deadlineError : undefined}
-          onChange={(e) => setDeadline(e.target.value)}
-        />
-        {deadlineInvalid && (
-          <span id={deadlineError} className="field-error">
-            Enter a real calendar date, or leave it empty.
-          </span>
-        )}
-      </label>
-      <label className="field">
-        <span>What to do</span>
-        <input
-          type="text"
-          value={action}
-          placeholder="e.g. Submit revised manuscript"
-          onChange={(e) => setAction(e.target.value)}
-        />
-      </label>
-      <div className="decide">
-        <button type="submit" disabled={props.busy || deadlineInvalid}>
-          {props.submitLabel}
-        </button>
-        <button type="button" className="quiet" onClick={props.onCancel}>
-          Cancel
-        </button>
-      </div>
-    </form>
   );
 }

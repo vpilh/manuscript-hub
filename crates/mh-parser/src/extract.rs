@@ -7,7 +7,7 @@ use crate::{
 };
 
 /// Recorded on every proposal for provenance (PRD §6).
-pub const PARSER_VERSION: &str = "seed-0.4";
+pub const PARSER_VERSION: &str = "seed-0.5";
 
 const DEADLINE_CUES: &[&str] = &[
     "due",
@@ -112,22 +112,23 @@ impl Default for CandidateRules {
 }
 
 impl CandidateRules {
+    /// Why the message counts as editorial mail, or `None` if it doesn't.
     /// Mail from a known editorial sender needs an ID or a status. Any other
     /// mail needs editorial vocabulary *and* a manuscript ID, because order
     /// numbers and phrases like "has been submitted" are everywhere.
-    fn matches(
+    fn reason(
         &self,
         message: &TransientMessage,
         searchable: &str,
-        has_id: bool,
+        first_id: Option<&str>,
         has_status: bool,
-    ) -> bool {
+    ) -> Option<String> {
         let address = sender_address(&message.from);
         if address
             .as_deref()
             .is_some_and(|a| self.own_addresses.iter().any(|own| own == a))
         {
-            return false;
+            return None;
         }
         let domain = address
             .as_deref()
@@ -136,16 +137,20 @@ impl CandidateRules {
         let known_sender = self
             .sender_domains
             .iter()
-            .any(|d| domain.is_some_and(|s| s == d || s.ends_with(&format!(".{d}"))));
-        if known_sender {
-            return has_id || has_status;
+            .find(|d| domain.is_some_and(|s| s == *d || s.ends_with(&format!(".{d}"))));
+        if let Some(known) = known_sender {
+            return (first_id.is_some() || has_status)
+                .then(|| format!("Sent from {known}, a known journal or editorial system."));
         }
         let lower = searchable.to_lowercase();
-        has_id
-            && self
-                .editorial_terms
-                .iter()
-                .any(|t| lower.contains(t.as_str()))
+        let id = first_id?;
+        let term = self
+            .editorial_terms
+            .iter()
+            .find(|t| lower.contains(t.as_str()))?;
+        Some(format!(
+            "Mentions the ID {id} together with the word {term}."
+        ))
     }
 }
 
@@ -272,9 +277,12 @@ pub fn extract(message: &TransientMessage, rules: &CandidateRules) -> Option<Pro
     let ids = find_manuscript_ids(&searchable);
     let status = detect_status(&searchable);
 
-    if !rules.matches(message, &searchable, !ids.is_empty(), status.is_some()) {
-        return None;
-    }
+    let reason = rules.reason(
+        message,
+        &searchable,
+        ids.first().map(String::as_str),
+        status.is_some(),
+    )?;
     let lower_body = body.to_lowercase();
     if ids.is_empty() && BULK_MAIL_MARKERS.iter().any(|m| lower_body.contains(m)) {
         return None;
@@ -332,6 +340,7 @@ pub fn extract(message: &TransientMessage, rules: &CandidateRules) -> Option<Pro
         deadline,
         requested_action,
         parser_version: PARSER_VERSION.to_string(),
+        reason,
         uncertainty,
         review: ReviewState::Proposed,
     })
@@ -513,6 +522,10 @@ mod tests {
         assert_eq!(
             event.journal.unwrap().value,
             "Journal of Banking and Finance"
+        );
+        assert_eq!(
+            event.reason,
+            "Sent from elsevier.com, a known journal or editorial system."
         );
     }
 

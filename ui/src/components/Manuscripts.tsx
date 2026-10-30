@@ -1,8 +1,16 @@
 import { ChevronDown } from "lucide-react";
 import { useEffect, useId, useState } from "react";
 
-import { api, type ManuscriptSummary, type TimelineEntry } from "../lib/api";
-import { daysUntil, formatTimestamp, isUrgent, longDate, relativeDue, statusLabel } from "../lib/format";
+import { api, type EventEdits, type ManuscriptSummary, type TimelineEntry } from "../lib/api";
+import {
+  daysUntil,
+  formatTimestamp,
+  isUrgent,
+  longDate,
+  relativeDue,
+  statusLabel,
+} from "../lib/format";
+import { EventForm } from "./EventForm";
 import { StatusMark } from "./StatusMark";
 
 interface Props {
@@ -10,16 +18,22 @@ interface Props {
   initialOpenId: number | null;
   onOpenReview: () => void;
   onMerge: (fromId: number, intoId: number) => Promise<void>;
+  onAmend: (eventId: number, edits: EventEdits) => Promise<void>;
+  onRemove: (eventId: number) => Promise<void>;
 }
 
-export function Manuscripts({ manuscripts, initialOpenId, onOpenReview, onMerge }: Props) {
+export function Manuscripts(props: Props) {
+  const { manuscripts, initialOpenId, onOpenReview, onMerge, onAmend, onRemove } = props;
   const [openId, setOpenId] = useState<number | null>(initialOpenId);
 
   if (manuscripts.length === 0) {
     return (
       <div className="empty">
         <p className="empty-title">No manuscripts tracked yet.</p>
-        <p>Add a message from the review list and its manuscript starts here, with every update in order.</p>
+        <p>
+          Add a message from the review list and its manuscript starts here, with every update in
+          order.
+        </p>
         <button className="secondary" onClick={onOpenReview}>
           Go to review
         </button>
@@ -36,6 +50,8 @@ export function Manuscripts({ manuscripts, initialOpenId, onOpenReview, onMerge 
           open={openId === m.id}
           onToggle={() => setOpenId(openId === m.id ? null : m.id)}
           others={manuscripts.filter((other) => other.id !== m.id)}
+          onAmend={onAmend}
+          onRemove={onRemove}
           onMerge={async (intoId) => {
             await onMerge(m.id, intoId);
             setOpenId(intoId);
@@ -52,6 +68,8 @@ function LedgerRow(props: {
   onToggle: () => void;
   others: ManuscriptSummary[];
   onMerge: (intoId: number) => Promise<void>;
+  onAmend: (eventId: number, edits: EventEdits) => Promise<void>;
+  onRemove: (eventId: number) => Promise<void>;
 }) {
   const { manuscript: m, open, onToggle } = props;
   const panelId = useId();
@@ -59,7 +77,12 @@ function LedgerRow(props: {
 
   return (
     <li className={open ? "ledger-row open" : "ledger-row"}>
-      <button className="ledger-toggle" aria-expanded={open} aria-controls={panelId} onClick={onToggle}>
+      <button
+        className="ledger-toggle"
+        aria-expanded={open}
+        aria-controls={panelId}
+        onClick={onToggle}
+      >
         <span className="ledger-status">
           <StatusMark status={m.status} />
           {m.status_since && <span className="since">since {formatTimestamp(m.status_since)}</span>}
@@ -81,7 +104,9 @@ function LedgerRow(props: {
           )}
           {m.pending_reviews > 0 && (
             <span className="pending-note">
-              {m.pending_reviews === 1 ? "1 update to review" : `${m.pending_reviews} updates to review`}
+              {m.pending_reviews === 1
+                ? "1 update to review"
+                : `${m.pending_reviews} updates to review`}
             </span>
           )}
         </span>
@@ -89,21 +114,38 @@ function LedgerRow(props: {
       </button>
       {open && (
         <div id={panelId}>
-          <Timeline manuscriptId={m.id} />
-          {props.others.length > 0 && <MergeControl others={props.others} onMerge={props.onMerge} />}
+          <Timeline
+            manuscriptId={m.id}
+            // The summary changes after a correction; reload the steps with it.
+            version={`${m.status}-${m.status_since}-${m.deadline ? longDate(m.deadline) : ""}`}
+            onAmend={props.onAmend}
+            onRemove={props.onRemove}
+          />
+          {props.others.length > 0 && (
+            <MergeControl others={props.others} onMerge={props.onMerge} />
+          )}
         </div>
       )}
     </li>
   );
 }
 
-function Timeline({ manuscriptId }: { manuscriptId: number }) {
+function Timeline(props: {
+  manuscriptId: number;
+  version: string;
+  onAmend: (eventId: number, edits: EventEdits) => Promise<void>;
+  onRemove: (eventId: number) => Promise<void>;
+}) {
+  const { manuscriptId, version } = props;
   const [entries, setEntries] = useState<TimelineEntry[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [reloads, setReloads] = useState(0);
 
   useEffect(() => {
     api.timeline(manuscriptId).then(setEntries, (e) => setError(String(e)));
-  }, [manuscriptId]);
+  }, [manuscriptId, version, reloads]);
+
+  const reload = () => setReloads((n) => n + 1);
 
   if (error) {
     return (
@@ -119,23 +161,93 @@ function Timeline({ manuscriptId }: { manuscriptId: number }) {
       {entries.map((e) => (
         <li key={e.event_id} className={e.review_state === "proposed" ? "step pending" : "step"}>
           <time className="step-date">{formatTimestamp(e.occurred_at)}</time>
-          <div className="step-body">
-            <p className="step-title">
-              {e.status ? statusLabel(e.status) : "Update"}
-              {e.review_state === "edited" && <span className="since"> (corrected by you)</span>}
-              {e.review_state === "proposed" && <span className="since"> (waiting for review)</span>}
-            </p>
-            {e.original_phrase && <p className="step-phrase">{e.original_phrase}</p>}
-            {e.deadline && <p className="since">Due {longDate(e.deadline)}</p>}
-            {e.source && (
-              <p className="since source">
-                {e.source.account_alias}, {e.source.folder}
-              </p>
-            )}
-          </div>
+          <Step
+            entry={e}
+            onAmend={async (edits) => {
+              await props.onAmend(e.event_id, edits);
+              reload();
+            }}
+            onRemove={async () => {
+              await props.onRemove(e.event_id);
+              reload();
+            }}
+          />
         </li>
       ))}
     </ol>
+  );
+}
+
+/** One update; confirmed ones can be corrected or removed. */
+function Step(props: {
+  entry: TimelineEntry;
+  onAmend: (edits: EventEdits) => Promise<void>;
+  onRemove: () => Promise<void>;
+}) {
+  const { entry: e } = props;
+  const [mode, setMode] = useState<"view" | "correct" | "remove">("view");
+  const [busy, setBusy] = useState(false);
+  const reviewed = e.review_state === "confirmed" || e.review_state === "edited";
+
+  async function run(action: () => Promise<void>) {
+    setBusy(true);
+    try {
+      await action();
+      setMode("view");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="step-body">
+      <p className="step-title">
+        {e.status ? statusLabel(e.status) : "Update"}
+        {e.review_state === "edited" && <span className="since"> (corrected by you)</span>}
+        {e.review_state === "proposed" && <span className="since"> (waiting for review)</span>}
+      </p>
+      {e.original_phrase && <p className="step-phrase">{e.original_phrase}</p>}
+      {e.deadline && <p className="since">Due {longDate(e.deadline)}</p>}
+      {e.source && (
+        <p className="since source">
+          {e.source.account_alias}, {e.source.folder}
+        </p>
+      )}
+      {reviewed && mode === "view" && (
+        <div className="step-actions">
+          <button className="quiet" onClick={() => setMode("correct")}>
+            Correct
+          </button>
+          <button className="quiet" onClick={() => setMode("remove")}>
+            Remove
+          </button>
+        </div>
+      )}
+      {mode === "correct" && (
+        <EventForm
+          status={e.status}
+          deadline={e.deadline}
+          action={e.requested_action}
+          busy={busy}
+          submitLabel="Save correction"
+          onCancel={() => setMode("view")}
+          onSave={(edits) => void run(() => props.onAmend(edits))}
+        />
+      )}
+      {mode === "remove" && (
+        <div className="decide">
+          <span className="confirm-text">
+            Remove this update from the timeline? The message won't be suggested again.
+          </span>
+          <button disabled={busy} onClick={() => void run(props.onRemove)}>
+            Remove update
+          </button>
+          <button className="quiet" onClick={() => setMode("view")}>
+            Keep it
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 

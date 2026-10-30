@@ -46,6 +46,13 @@ pub struct ImapSettings {
     pub folders: Vec<String>,
     /// How far back the first scan of a folder reaches.
     pub backfill_days: u32,
+    /// Minutes between automatic checks; 0 means only when the user asks.
+    #[serde(default = "default_check_minutes")]
+    pub check_every_minutes: u32,
+}
+
+fn default_check_minutes() -> u32 {
+    15
 }
 
 #[derive(Debug)]
