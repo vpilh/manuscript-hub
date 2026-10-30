@@ -1,6 +1,7 @@
 // Hide the console window on Windows release builds.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod data;
 mod keychain;
 mod mail;
 mod notify;
@@ -271,6 +272,7 @@ fn open_store(app: &tauri::App) -> Result<Store, String> {
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let store = open_store(app).map(|store| Arc::new(Mutex::new(store)));
             app.manage(AppState(store));
@@ -314,6 +316,12 @@ fn main() {
             remove_event,
             sender_rules,
             add_manual_update,
+            data::export_csv,
+            data::export_json,
+            data::create_backup,
+            data::import_json,
+            data::restore_backup,
+            data::delete_all_data,
             import_pasted_mail,
             set_sender_rule,
             remove_sender_rule

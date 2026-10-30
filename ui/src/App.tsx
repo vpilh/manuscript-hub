@@ -1,9 +1,10 @@
-import { Inbox, Library, Lock, Mail } from "lucide-react";
+import { Archive, Inbox, Library, Lock, Mail } from "lucide-react";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 
 import { Mailboxes } from "./components/Mailboxes";
 import { scanSentence } from "./lib/format";
 import { Manuscripts } from "./components/Manuscripts";
+import { YourData } from "./components/YourData";
 import { ReviewQueue } from "./components/ReviewQueue";
 import {
   api,
@@ -17,7 +18,7 @@ import {
   type ScanSummary,
 } from "./lib/api";
 
-type View = "review" | "manuscripts" | "mailboxes";
+type View = "review" | "manuscripts" | "mailboxes" | "data";
 
 const TITLES: Record<View, [string, string]> = {
   review: [
@@ -27,6 +28,10 @@ const TITLES: Record<View, [string, string]> = {
   manuscripts: [
     "Manuscripts",
     "Everything you have confirmed, with the current status and the next deadline.",
+  ],
+  data: [
+    "Your data",
+    "Everything Manuscript Hub knows is stored encrypted on this computer. Export it, back it up, or delete it here.",
   ],
   mailboxes: [
     "Mailboxes",
@@ -40,6 +45,7 @@ const initialView = (): View => {
   const hash = window.location.hash;
   if (hash.startsWith("#manuscripts")) return "manuscripts";
   if (hash.startsWith("#mailboxes")) return "mailboxes";
+  if (hash.startsWith("#data")) return "data";
   return "review";
 };
 const initialOpenId = (): number | null => {
@@ -177,6 +183,16 @@ export function App() {
               <Mail aria-hidden="true" size={18} />
               Mailboxes
             </RailLink>
+            <button
+              className="rail-link"
+              aria-current={view === "data" ? "page" : undefined}
+              onClick={() => show("data")}
+            >
+              <span className="rail-label">
+                <Archive aria-hidden="true" size={18} />
+                Your data
+              </span>
+            </button>
           </nav>
         )}
         <div className="rail-foot">
@@ -258,6 +274,26 @@ export function App() {
                   })
                 }
                 onDecide={(eventId, decision) => act(() => api.reviewEvent(eventId, decision))}
+              />
+            ) : view === "data" ? (
+              <YourData
+                onExportCsv={api.exportCsv}
+                onExportJson={api.exportJson}
+                onBackup={api.createBackup}
+                onImportJson={async () => {
+                  const imported = await api.importJson();
+                  await refresh();
+                  return imported;
+                }}
+                onRestore={async (password) => {
+                  const imported = await api.restoreBackup(password);
+                  await refresh();
+                  return imported;
+                }}
+                onDeleteAll={async () => {
+                  await api.deleteAllData();
+                  await refresh();
+                }}
               />
             ) : view === "mailboxes" ? (
               <Mailboxes

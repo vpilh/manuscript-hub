@@ -25,7 +25,7 @@ impl SenderRuleKind {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SenderRule {
     pub domain: String,
     pub kind: SenderRuleKind,

@@ -124,6 +124,22 @@ export interface ManualUpdate {
   requested_action: string | null;
 }
 
+/** Where an exported file was saved; `path` is null when the dialog was closed. */
+export interface Saved {
+  path: string | null;
+}
+
+export interface ImportSummary {
+  manuscripts_added: number;
+  updates_added: number;
+  updates_skipped: number;
+}
+
+/** `summary` is null when the dialog was closed. */
+export interface Imported {
+  summary: ImportSummary | null;
+}
+
 /** What happened to a pasted message. */
 export type PasteOutcome = "proposed" | "duplicate" | "nothing_found";
 
@@ -214,6 +230,12 @@ const desktopApi = {
   addManualUpdate: (target: ManualTarget, update: ManualUpdate) =>
     invoke<number>("add_manual_update", { target, update }),
   importPastedMail: (text: string) => invoke<PasteOutcome>("import_pasted_mail", { text }),
+  exportCsv: () => invoke<Saved>("export_csv"),
+  exportJson: () => invoke<Saved>("export_json"),
+  createBackup: (password: string) => invoke<Saved>("create_backup", { password }),
+  importJson: () => invoke<Imported>("import_json"),
+  restoreBackup: (password: string) => invoke<Imported>("restore_backup", { password }),
+  deleteAllData: () => invoke<void>("delete_all_data"),
   senderRules: () => invoke<SenderRule[]>("sender_rules"),
   /** Resolves to how many waiting proposals an "ignore" rule set aside. */
   setSenderRule: (domain: string, kind: SenderRuleKind) =>

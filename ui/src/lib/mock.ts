@@ -383,6 +383,27 @@ export const mockApi: Api = {
     await wait(undefined);
     return /revision|accept|review/i.test(text) ? "proposed" : "nothing_found";
   },
+  // The preview has no file system; it pretends the dialogs were answered.
+  exportCsv: () => wait({ path: "C:\Users\you\Documents\manuscripts.csv" }),
+  exportJson: () => wait({ path: "C:\Users\you\Documents\manuscript-hub-export.json" }),
+  createBackup: async (password) => {
+    if (password.length < 10) throw new Error("Choose a backup password of at least 10 characters.");
+    return wait({ path: "C:\Users\you\Documents\manuscript-hub-backup.mhbackup" });
+  },
+  importJson: () => wait({ summary: { manuscripts_added: 0, updates_added: 0, updates_skipped: 3 } }),
+  restoreBackup: async (password) => {
+    if (password !== "a long backup password") {
+      throw new Error("The password is wrong, or the backup file is damaged.");
+    }
+    return wait({ summary: { manuscripts_added: 1, updates_added: 2, updates_skipped: 0 } });
+  },
+  deleteAllData: async () => {
+    manuscripts = [];
+    queue = [];
+    accounts = [];
+    senderRules = [];
+    await wait(undefined);
+  },
   senderRules: () => wait(structuredClone(senderRules)),
   setSenderRule: async (value, kind) => {
     const domain = value.trim().split("@").pop()!.replace(/\.$/, "").toLowerCase();
