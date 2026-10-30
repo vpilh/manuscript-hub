@@ -21,3 +21,4 @@ tauri = { version = "2", features = ["tray-icon"] }
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
 mh-store.workspace = true
 tauri-plugin-notification = "2"
+tauri-plugin-dialog = "2"

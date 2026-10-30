@@ -997,6 +997,41 @@ button.link:hover {
   margin-top: var(--space-7);
 }
 
+/* ---- Your data ---- */
+
+.data-page {
+  display: grid;
+  gap: var(--space-6);
+  margin-top: var(--space-2);
+  max-width: 40rem;
+}
+
+.data-section {
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--rule);
+}
+
+.data-section h2 {
+  margin: 0;
+  font-size: 1.25rem;
+  line-height: 1.3;
+}
+
+.data-section .decide {
+  margin-top: var(--space-4);
+}
+
+.data-section .notice {
+  overflow-wrap: anywhere;
+}
+
+/* Irreversible, so solid ink rather than the pencil blue of everyday actions. */
+.decide button.danger {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--paper);
+}
+
 /* ---- Narrow windows ---- */
 
 @media (max-width: 760px) {

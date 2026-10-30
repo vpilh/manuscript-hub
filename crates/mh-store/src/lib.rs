@@ -6,8 +6,10 @@
 //! bodies, attachments or credentials.
 
 mod accounts;
+mod backup;
 mod crypto;
 mod error;
+mod export;
 mod manual;
 mod matching;
 mod merge;
@@ -17,8 +19,13 @@ mod sender_rules;
 mod store;
 
 pub use accounts::AccountSummary;
+pub use backup::{open_backup, seal_backup, MIN_PASSWORD_CHARS};
 pub use crypto::DbKey;
 pub use error::StoreError;
+pub use export::{
+    Export, ExportedManuscript, ExportedSource, ExportedUpdate, ImportSummary, EXPORT_FORMAT,
+    EXPORT_VERSION,
+};
 pub use manual::{ManualTarget, ManualUpdate};
 pub use matching::{normalize_title, title_similarity, TITLE_MATCH_THRESHOLD};
 pub use reminders::{Reminder, ReminderStage};
