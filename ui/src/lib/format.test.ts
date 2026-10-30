@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   checkedAgo,
+  isFinished,
   confidenceLabel,
   confidenceWord,
   daysUntil,
@@ -12,6 +13,7 @@ import {
   relativeDue,
   scanSentence,
   statusLabel,
+  waitingFor,
 } from "./format";
 
 describe("format", () => {
@@ -78,5 +80,23 @@ describe("parseIsoDate", () => {
     expect(
       scanSentence({ messages: 40, proposed: 1, already_seen: 2, not_journal_mail: 37 }),
     ).toBe("Read 40 messages: 1 new to review, 2 seen before, 37 not journal mail.");
+  });
+
+  it("says how long the journal has had a manuscript", () => {
+    const now = 1_793_275_200;
+    const day = 86_400;
+    expect(waitingFor("under_review", now - 3 * day, now)).toBe("waiting 3 days");
+    expect(waitingFor("submitted", now - 20 * day, now)).toBe("waiting 2 weeks");
+    expect(waitingFor("with_editor", now - 95 * day, now)).toBe("waiting 3 months");
+    expect(waitingFor("under_review", now - 3600, now)).toBeNull();
+    expect(waitingFor("revision_required", now - 30 * day, now)).toBeNull();
+    expect(waitingFor("accepted", now - 30 * day, now)).toBeNull();
+  });
+
+  it("knows which statuses are final", () => {
+    expect(isFinished("accepted")).toBe(true);
+    expect(isFinished("rejected")).toBe(true);
+    expect(isFinished("under_review")).toBe(false);
+    expect(isFinished(null)).toBe(false);
   });
 });
