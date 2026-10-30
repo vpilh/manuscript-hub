@@ -108,6 +108,38 @@ export interface ScanSummary {
   not_journal_mail: number;
 }
 
+export type Security = "tls" | "start_tls";
+
+/** Connection settings without the password, which stays in the OS keychain. */
+export interface ImapSettings {
+  host: string;
+  port: number;
+  security: Security;
+  username: string;
+  /** Empty when connecting: Gmail's All Mail (or the inbox) is chosen automatically. */
+  folders: string[];
+  backfill_days: number;
+}
+
+export type MailProvider = "gmail" | "groupwise_imap";
+
+export interface MailAccount {
+  id: number;
+  provider: MailProvider;
+  alias: string;
+  settings: ImapSettings;
+  /** Unix seconds of the last successful check. */
+  last_sync_at: number | null;
+  last_error: string | null;
+}
+
+export interface NewMailAccount {
+  provider: MailProvider;
+  alias: string;
+  settings: ImapSettings;
+  password: string;
+}
+
 export interface AppInfo {
   version: string;
   parser_version: string;
@@ -130,6 +162,12 @@ const desktopApi = {
     invoke<void>("review_event", { eventId, decision }),
   manuscripts: () => invoke<ManuscriptSummary[]>("manuscripts"),
   timeline: (manuscriptId: number) => invoke<TimelineEntry[]>("timeline", { manuscriptId }),
+  mailAccounts: () => invoke<MailAccount[]>("mail_accounts"),
+  connectMailAccount: (account: NewMailAccount) =>
+    invoke<MailAccount>("connect_mail_account", { account }),
+  disconnectMailAccount: (accountId: number) =>
+    invoke<void>("disconnect_mail_account", { accountId }),
+  syncMailAccount: (accountId: number) => invoke<ScanSummary>("sync_mail_account", { accountId }),
 };
 
 /** In a dev browser (`npm run dev`) the UI runs on an in-memory mock; production builds never include it. */

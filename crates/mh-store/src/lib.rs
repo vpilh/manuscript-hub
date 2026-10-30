@@ -5,12 +5,14 @@
 //! normalized metadata, source references and sync cursors only: no message
 //! bodies, attachments or credentials.
 
+mod accounts;
 mod crypto;
 mod error;
 mod matching;
 mod review;
 mod store;
 
+pub use accounts::AccountSummary;
 pub use crypto::DbKey;
 pub use error::StoreError;
 pub use matching::{normalize_title, title_similarity, TITLE_MATCH_THRESHOLD};

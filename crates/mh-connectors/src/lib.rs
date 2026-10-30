@@ -5,6 +5,7 @@
 //! GroupWise IMAP adapters land in Phases 2 and 3; the [`mock`] provider serves
 //! synthetic fixtures so the app runs without live credentials (FR22).
 
+pub mod imap;
 pub mod imap_guard;
 pub mod mock;
 mod provider;

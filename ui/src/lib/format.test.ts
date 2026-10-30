@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  checkedAgo,
   confidenceLabel,
   confidenceWord,
   daysUntil,
@@ -9,6 +10,7 @@ import {
   longDate,
   parseIsoDate,
   relativeDue,
+  scanSentence,
   statusLabel,
 } from "./format";
 
@@ -58,5 +60,23 @@ describe("parseIsoDate", () => {
     expect(parseIsoDate("")).toBeNull();
     expect(parseIsoDate("2026-02-30")).toBeNull();
     expect(parseIsoDate("12.11.2026")).toBeNull();
+  });
+
+  it("says when a mailbox was last checked", () => {
+    const now = 1_793_275_200;
+    expect(checkedAgo(now - 20, now)).toBe("just now");
+    expect(checkedAgo(now - 60, now)).toBe("1 minute ago");
+    expect(checkedAgo(now - 45 * 60, now)).toBe("45 minutes ago");
+    expect(checkedAgo(now - 3 * 3600, now)).toBe("3 hours ago");
+    expect(checkedAgo(now - 3 * 86_400, now)).toBe("on 26 Oct 2026");
+  });
+
+  it("summarizes a mailbox check", () => {
+    expect(scanSentence({ messages: 0, proposed: 0, already_seen: 0, not_journal_mail: 0 })).toBe(
+      "No new mail since the last check.",
+    );
+    expect(
+      scanSentence({ messages: 40, proposed: 1, already_seen: 2, not_journal_mail: 37 }),
+    ).toBe("Read 40 messages: 1 new to review, 2 seen before, 37 not journal mail.");
   });
 });

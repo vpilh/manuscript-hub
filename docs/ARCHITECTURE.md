@@ -29,9 +29,9 @@ Manuscript Hub runs entirely on the researcher's computer. There is no Manuscrip
 |---|---|---|
 | `mh-core` | Domain types: `EditorialStatus`, `SourceRef`/`DedupKey`, `Field<T>` with confidence and original phrase, `ProposedEvent`, `ReviewState`, `CalendarDate`, `TransientMessage`. No I/O. | `serde` |
 | `mh-parser` | Candidate detection, quoted-reply stripping, manuscript-ID candidates, English and German status phrases and dates, assembly of a `ProposedEvent`. | `mh-core` |
-| `mh-connectors` | The `MailProvider` trait and sync cursors, the IMAP command allowlist, RFC 2822 / INTERNALDATE parsing, the mock provider for fixtures. Real adapters land here. | `mh-core` |
+| `mh-connectors` | The `MailProvider` trait and sync cursors, the IMAP command allowlist, RFC 2822 / INTERNALDATE parsing, the mock provider for fixtures, and the IMAP adapter (`imap/`: a minimal client whose single write path runs `check_command`, rustls with the OS trust store, MIME decoding with `mail-parser`). | `mh-core`, `rustls`, `imap-proto`, `mail-parser` |
 | `mh-store` | Encrypted persistence (in-memory SQLite, sealed to disk with XChaCha20-Poly1305 after each write), migrations, matching and the review queue. | `mh-core`, `rusqlite`, `chacha20poly1305` |
-| `src-tauri` | Wires the crates together behind IPC commands; keeps the database key in the OS keychain (`keychain.rs`). No business logic. | all of the above, `tauri`, `keyring` |
+| `src-tauri` | Wires the crates together behind IPC commands; keeps the database key and mailbox passwords in the OS keychain (`keychain.rs`); runs mailbox checks on a blocking thread (`mail.rs`). No business logic. | all of the above, `tauri`, `keyring` |
 
 The domain crates compile and test without Tauri or system webview libraries. CI runs them on Windows and macOS as well as Linux.
 

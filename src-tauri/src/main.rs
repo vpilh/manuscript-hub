@@ -2,13 +2,16 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod keychain;
+mod mail;
 
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use mh_connectors::{mock::MockProvider, MailProvider};
-use mh_core::Provider;
+use mh_core::{Provider, TransientMessage};
 use mh_parser::{extract, CandidateRules, PARSER_VERSION};
-use mh_store::{ManuscriptSummary, QueueItem, RecordOutcome, ReviewDecision, Store, TimelineEntry};
+use mh_store::{
+    ManuscriptSummary, QueueItem, RecordOutcome, ReviewDecision, Store, StoreError, TimelineEntry,
+};
 use serde::Serialize;
 use tauri::{Manager, State};
 
@@ -26,7 +29,7 @@ const DEMO_ACCOUNT: &str = "Demo mailbox";
 const DATABASE_FILE: &str = "manuscript-hub.db";
 
 /// The open database, or why it could not be opened (shown in the UI).
-struct AppState(Result<Mutex<Store>, String>);
+struct AppState(Result<Arc<Mutex<Store>>, String>);
 
 impl AppState {
     fn with_store<T>(
@@ -39,6 +42,11 @@ impl AppState {
             .map_err(|_| "database lock poisoned".to_string())?;
         f(&mut store).map_err(|e| e.to_string())
     }
+
+    /// A handle that outlives the command, for work on a blocking thread.
+    fn handle(&self) -> Result<Arc<Mutex<Store>>, String> {
+        self.0.clone()
+    }
 }
 
 #[derive(Serialize)]
@@ -48,7 +56,7 @@ struct AppInfo {
     storage_error: Option<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Default, Serialize)]
 struct ScanSummary {
     messages: usize,
     proposed: usize,
@@ -72,33 +80,40 @@ fn scan_demo_mailbox(state: State<'_, AppState>) -> Result<ScanSummary, String> 
     let rules = CandidateRules::default();
     state.with_store(|store| {
         let account = store.ensure_account(Provider::Mock, DEMO_ACCOUNT)?;
-        let mut summary = ScanSummary {
-            messages: 0,
-            proposed: 0,
-            already_seen: 0,
-            not_journal_mail: 0,
-        };
+        let mut summary = ScanSummary::default();
         let mut cursor = None;
         loop {
             let batch = provider
                 .fetch_changes(cursor.as_ref())
-                .map_err(|e| mh_store::StoreError::Format(e.to_string()))?;
-            for message in &batch.messages {
-                summary.messages += 1;
-                match extract(message, &rules) {
-                    None => summary.not_journal_mail += 1,
-                    Some(proposal) => match store.record_proposal(account, &proposal)? {
-                        RecordOutcome::Proposed { .. } => summary.proposed += 1,
-                        RecordOutcome::Duplicate => summary.already_seen += 1,
-                    },
-                }
-            }
+                .map_err(|e| StoreError::Format(e.to_string()))?;
+            record_batch(store, account, &batch.messages, &rules, &mut summary)?;
             if !batch.more {
                 return Ok(summary);
             }
             cursor = Some(batch.next_cursor);
         }
     })
+}
+
+/// Parses messages into the review queue; bodies are dropped with `messages`.
+fn record_batch(
+    store: &mut Store,
+    account: i64,
+    messages: &[TransientMessage],
+    rules: &CandidateRules,
+    summary: &mut ScanSummary,
+) -> Result<(), StoreError> {
+    for message in messages {
+        summary.messages += 1;
+        match extract(message, rules) {
+            None => summary.not_journal_mail += 1,
+            Some(proposal) => match store.record_proposal(account, &proposal)? {
+                RecordOutcome::Proposed { .. } => summary.proposed += 1,
+                RecordOutcome::Duplicate => summary.already_seen += 1,
+            },
+        }
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -138,7 +153,7 @@ fn open_store(app: &tauri::App) -> Result<Store, String> {
 fn main() {
     tauri::Builder::default()
         .setup(|app| {
-            let store = open_store(app).map(Mutex::new);
+            let store = open_store(app).map(|store| Arc::new(Mutex::new(store)));
             app.manage(AppState(store));
             Ok(())
         })
@@ -148,7 +163,11 @@ fn main() {
             review_queue,
             review_event,
             manuscripts,
-            timeline
+            timeline,
+            mail::mail_accounts,
+            mail::connect_mail_account,
+            mail::disconnect_mail_account,
+            mail::sync_mail_account
         ])
         .run(tauri::generate_context!())
         .expect("failed to start Manuscript Hub");

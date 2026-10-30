@@ -611,6 +611,134 @@ button:disabled {
   overflow-wrap: anywhere;
 }
 
+/* ---- Mailboxes ---- */
+
+.account {
+  padding: var(--space-4) var(--space-2) var(--space-5);
+}
+
+.account-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  gap: var(--space-4);
+}
+
+.account-name,
+.account-state {
+  display: grid;
+  gap: 2px;
+  align-content: start;
+}
+
+.account-name .since {
+  overflow-wrap: anywhere;
+}
+
+.account .decide {
+  margin-top: var(--space-4);
+}
+
+.account-error {
+  display: flex;
+  gap: var(--space-2);
+  align-items: flex-start;
+  margin-top: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--caution-tint);
+  border-radius: var(--radius);
+}
+
+.account-error svg {
+  flex: none;
+  margin-top: 3px;
+  color: var(--caution);
+}
+
+.confirm-text {
+  flex-basis: 100%;
+  margin-bottom: var(--space-1);
+}
+
+.connect {
+  margin-top: var(--space-3);
+  max-width: 36rem;
+}
+
+.ledger + .connect {
+  margin-top: var(--space-6);
+}
+
+.connect h2 {
+  margin: 0;
+  font-size: 1.25rem;
+  line-height: 1.3;
+}
+
+.hint {
+  margin-top: var(--space-2);
+  font-size: var(--t-small);
+  color: var(--margin);
+  max-width: 62ch;
+}
+
+.choice {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: var(--space-5) 0 0;
+  padding: 0;
+  border: 0;
+}
+
+.choice legend {
+  padding: 0;
+  margin-bottom: var(--space-2);
+  color: var(--margin);
+}
+
+.choice label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 40px;
+  padding: 0 var(--space-4) 0 var(--space-3);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  background: var(--sheet);
+  cursor: pointer;
+  transition: border-color var(--quick), background-color var(--quick);
+}
+
+.choice label:has(input:checked) {
+  border-color: var(--pencil);
+  background: var(--pencil-tint);
+  font-weight: 700;
+}
+
+.choice input {
+  accent-color: var(--pencil);
+  margin: 0;
+}
+
+.field-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 var(--space-4);
+}
+
+.field.grow {
+  flex: 1 1 14rem;
+}
+
+.field.narrow {
+  flex: 0 0 6rem;
+}
+
+.field-row .field input {
+  width: 100%;
+  min-width: 0;
+}
+
 /* ---- Narrow windows ---- */
 
 @media (max-width: 760px) {
@@ -680,5 +808,10 @@ button:disabled {
 
   .step-date {
     text-align: left;
+  }
+
+  .account-main {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-2);
   }
 }
