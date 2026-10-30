@@ -140,6 +140,11 @@ fn timeline(state: State<'_, AppState>, manuscript_id: i64) -> Result<Vec<Timeli
     state.with_store(|store| store.timeline(manuscript_id))
 }
 
+#[tauri::command]
+fn merge_manuscripts(state: State<'_, AppState>, from_id: i64, into_id: i64) -> Result<(), String> {
+    state.with_store(|store| store.merge_manuscripts(from_id, into_id))
+}
+
 fn open_store(app: &tauri::App) -> Result<Store, String> {
     let dir = app
         .path()
@@ -164,6 +169,7 @@ fn main() {
             review_event,
             manuscripts,
             timeline,
+            merge_manuscripts,
             mail::mail_accounts,
             mail::connect_mail_account,
             mail::disconnect_mail_account,

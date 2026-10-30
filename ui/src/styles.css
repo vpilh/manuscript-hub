@@ -601,10 +601,20 @@ button:disabled {
   font-weight: 700;
 }
 
-.step-quote {
-  font-family: var(--serif);
-  font-size: 1.125rem;
-  line-height: 1.35;
+.step-phrase {
+  color: var(--margin);
+}
+
+.merge {
+  padding: 0 var(--space-4) var(--space-5) calc(6.5rem + var(--space-4) + var(--space-2));
+}
+
+.merge .field {
+  margin-top: 0;
+}
+
+.merge .decide {
+  margin-top: var(--space-3);
 }
 
 .source {
@@ -808,6 +818,10 @@ button:disabled {
 
   .step-date {
     text-align: left;
+  }
+
+  .merge {
+    padding-left: var(--space-2);
   }
 
   .account-main {

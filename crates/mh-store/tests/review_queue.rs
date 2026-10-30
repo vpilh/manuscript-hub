@@ -470,3 +470,64 @@ fn decisions_deserialize_from_the_ui_and_reject_impossible_dates() {
     )
     .is_err());
 }
+
+#[test]
+fn merging_combines_timelines_and_derives_the_newest_state() {
+    let (mut store, account) = setup();
+    let submitted = record(
+        &mut store,
+        account,
+        &proposal(
+            "m1",
+            T0,
+            Some("Journal of Banking and Finance"),
+            Some("JBF-D-26-01235"),
+            Some(EditorialStatus::Submitted),
+            None,
+        ),
+    );
+    store.review(submitted, confirm()).unwrap();
+    let under_review = record(
+        &mut store,
+        account,
+        &proposal(
+            "m2",
+            T0 + DAY,
+            Some("Track your Elsevier submission"),
+            Some("JBF-D-26-99999"),
+            Some(EditorialStatus::UnderReview),
+            None,
+        ),
+    );
+    store.review(under_review, confirm()).unwrap();
+    let manuscripts = store.manuscripts().unwrap();
+    assert_eq!(manuscripts.len(), 2);
+    let id_of = |journal: &str| {
+        manuscripts
+            .iter()
+            .find(|m| m.journal == journal)
+            .unwrap()
+            .id
+    };
+    let (wrong, right) = (
+        id_of("Track your Elsevier submission"),
+        id_of("Journal of Banking and Finance"),
+    );
+
+    store.merge_manuscripts(wrong, right).unwrap();
+
+    let manuscripts = store.manuscripts().unwrap();
+    assert_eq!(manuscripts.len(), 1);
+    assert_eq!(manuscripts[0].id, right);
+    assert_eq!(
+        manuscripts[0].external_id.as_deref(),
+        Some("JBF-D-26-01235")
+    );
+    assert_eq!(manuscripts[0].status, Some(EditorialStatus::UnderReview));
+    assert_eq!(store.timeline(right).unwrap().len(), 2);
+    assert!(store.merge_manuscripts(right, right).is_err());
+    assert!(matches!(
+        store.merge_manuscripts(wrong, right),
+        Err(StoreError::NotFound { .. })
+    ));
+}

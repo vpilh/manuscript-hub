@@ -280,6 +280,26 @@ export const mockApi: Api = {
   },
   manuscripts: () => wait(structuredClone(withPendingCounts())),
   timeline: (manuscriptId) => wait(structuredClone(timelines[manuscriptId] ?? [])),
+  mergeManuscripts: async (fromId, intoId) => {
+    const into = manuscripts.find((m) => m.id === intoId);
+    if (!into || fromId === intoId) throw new Error("manuscript not found");
+    timelines[intoId] = [...(timelines[intoId] ?? []), ...(timelines[fromId] ?? [])].sort(
+      (a, b) => b.occurred_at - a.occurred_at,
+    );
+    delete timelines[fromId];
+    queue = queue.map((q) =>
+      q.suggested_manuscript?.id === fromId
+        ? { ...q, suggested_manuscript: { ...q.suggested_manuscript, id: intoId } }
+        : q,
+    );
+    const newest = timelines[intoId].find((e) => e.status);
+    if (newest) {
+      into.status = newest.status;
+      into.status_since = newest.occurred_at;
+    }
+    manuscripts = manuscripts.filter((m) => m.id !== fromId);
+    await wait(undefined);
+  },
   mailAccounts: () => wait(structuredClone(accounts)),
   // The password "wrong" simulates a rejected login.
   connectMailAccount: async ({ provider, alias, settings, password }) => {

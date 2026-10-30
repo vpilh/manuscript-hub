@@ -217,6 +217,7 @@ export function App() {
                 manuscripts={manuscripts}
                 initialOpenId={initialOpenId()}
                 onOpenReview={() => show("review")}
+                onMerge={(fromId, intoId) => act(() => api.mergeManuscripts(fromId, intoId))}
               />
             )}
           </section>

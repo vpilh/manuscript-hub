@@ -162,6 +162,8 @@ const desktopApi = {
     invoke<void>("review_event", { eventId, decision }),
   manuscripts: () => invoke<ManuscriptSummary[]>("manuscripts"),
   timeline: (manuscriptId: number) => invoke<TimelineEntry[]>("timeline", { manuscriptId }),
+  mergeManuscripts: (fromId: number, intoId: number) =>
+    invoke<void>("merge_manuscripts", { fromId, intoId }),
   mailAccounts: () => invoke<MailAccount[]>("mail_accounts"),
   connectMailAccount: (account: NewMailAccount) =>
     invoke<MailAccount>("connect_mail_account", { account }),

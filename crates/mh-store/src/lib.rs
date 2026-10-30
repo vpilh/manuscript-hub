@@ -9,6 +9,7 @@ mod accounts;
 mod crypto;
 mod error;
 mod matching;
+mod merge;
 mod review;
 mod store;
 
