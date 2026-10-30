@@ -91,12 +91,59 @@ const RULES: &[(EditorialStatus, &[&str])] = &[
     ),
 ];
 
-/// The highest-priority status phrase in `text`, with the phrase as written.
+/// Words that make the rest of their clause hypothetical: "if accepted for
+/// publication", "once your manuscript has been accepted", "falls angenommen".
+const CONDITIONALS: &[&str] = &[
+    "if", "once", "when", "whether", "unless", "until", "before", "upon", "should", "would",
+    "wenn", "falls", "sobald", "ob", "bevor",
+];
+
+/// Plural subjects that make a phrase general advice rather than news about
+/// this manuscript: "articles accepted for publication are …".
+const GENERIC_SUBJECTS: &[&str] = &[
+    "articles",
+    "papers",
+    "manuscripts",
+    "submissions",
+    "contributions",
+    "beiträge",
+    "artikel",
+];
+
+/// True when the phrase starting at `start` sits in a conditional or generic
+/// clause. Submission confirmations are full of such boilerplate.
+fn is_hypothetical(lower: &str, start: usize) -> bool {
+    let before = &lower[..start];
+    let clause_start = before
+        .rfind(['.', '!', '?', ';', ':', '\n'])
+        .map_or(0, |i| i + 1);
+    let mut clause = &before[clause_start..];
+    if clause.len() > 120 {
+        let mut cut = clause.len() - 120;
+        while !clause.is_char_boundary(cut) {
+            cut += 1;
+        }
+        clause = &clause[cut..];
+    }
+    let words: Vec<&str> = clause
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .collect();
+    words.iter().any(|w| CONDITIONALS.contains(w))
+        || words.last().is_some_and(|w| GENERIC_SUBJECTS.contains(w))
+}
+
+/// The highest-priority status phrase in `text` that states a fact (not a
+/// condition), with the phrase as written.
 pub fn detect_status(text: &str) -> Option<(EditorialStatus, String)> {
     let lower = text.to_lowercase();
     for (status, phrases) in RULES {
         for phrase in *phrases {
-            if let Some(start) = lower.find(phrase) {
+            let found = lower
+                .match_indices(phrase)
+                .map(|(start, _)| start)
+                .find(|&start| !is_hypothetical(&lower, start));
+            if let Some(start) = found {
                 let end = start + phrase.len();
                 // Lowercasing can change byte lengths for some scripts; fall back to the rule text.
                 let original = if lower.len() == text.len()
@@ -120,6 +167,31 @@ mod tests {
 
     fn status(text: &str) -> Option<EditorialStatus> {
         detect_status(text).map(|(s, _)| s)
+    }
+
+    #[test]
+    fn conditional_boilerplate_is_not_a_decision() {
+        let confirmation = "Your manuscript JBF-D-26-01235 has been successfully submitted. \
+            By submitting, you confirm that the work is original and that, if accepted for \
+            publication, it will not be published elsewhere. Once your manuscript has been \
+            accepted, you will receive proofs. Articles accepted for publication appear online \
+            first.";
+        assert_eq!(status(confirmation), Some(EditorialStatus::Submitted));
+        assert_eq!(
+            status(
+                "Falls Ihr Beitrag zur Veröffentlichung angenommen wird, erhalten Sie Fahnen. \
+                    Ihr Manuskript wurde erfolgreich eingereicht."
+            ),
+            Some(EditorialStatus::Submitted)
+        );
+    }
+
+    #[test]
+    fn a_real_decision_after_boilerplate_still_counts() {
+        assert_eq!(
+            status("If you have questions, contact us. Your manuscript has been accepted for publication."),
+            Some(EditorialStatus::Accepted)
+        );
     }
 
     #[test]

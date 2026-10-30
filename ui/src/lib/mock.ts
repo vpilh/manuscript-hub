@@ -270,7 +270,7 @@ function withPendingCounts(): ManuscriptSummary[] {
 }
 
 export const mockApi: Api = {
-  appInfo: () => wait({ version: "0.1.0", parser_version: "seed-0.2", storage_error: null }),
+  appInfo: () => wait({ version: "0.1.0", parser_version: "seed-0.3", storage_error: null }),
   scanDemoMailbox: () =>
     wait({ messages: 6, proposed: 0, already_seen: 5, not_journal_mail: 1 }),
   reviewQueue: () => wait(structuredClone(queue)),
