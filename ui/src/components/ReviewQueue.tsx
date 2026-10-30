@@ -20,11 +20,13 @@ interface Props {
   hasMailboxes: boolean;
   onScan: () => void;
   onOpenMailboxes: () => void;
+  onBlockSender: (domain: string) => Promise<void>;
   onDecide: (eventId: number, decision: ReviewDecision) => Promise<void>;
 }
 
 export function ReviewQueue(props: Props) {
   const { items, manuscripts, scanning, hasMailboxes, onScan, onOpenMailboxes, onDecide } = props;
+  const { onBlockSender } = props;
   if (items.length === 0) {
     return (
       <div className="empty">
@@ -56,6 +58,7 @@ export function ReviewQueue(props: Props) {
           item={item}
           manuscripts={manuscripts}
           onDecide={(decision) => onDecide(item.event_id, decision)}
+          onBlockSender={onBlockSender}
         />
       ))}
     </ol>
@@ -66,6 +69,7 @@ function Proposal(props: {
   item: QueueItem;
   manuscripts: ManuscriptSummary[];
   onDecide: (decision: ReviewDecision) => Promise<void>;
+  onBlockSender: (domain: string) => Promise<void>;
 }) {
   const { item, manuscripts, onDecide } = props;
   const { proposal, match_kind, match_rationale, suggested_manuscript } = item;
@@ -125,6 +129,13 @@ function Proposal(props: {
 
         <dt>Manuscript</dt>
         <dd className="figures">{manuscript_id?.value ?? "No ID in the message"}</dd>
+
+        {proposal.title && (
+          <>
+            <dt>Title</dt>
+            <dd>{proposal.title.value}</dd>
+          </>
+        )}
 
         {deadline && days !== null && (
           <>
@@ -216,6 +227,15 @@ function Proposal(props: {
           <button className="quiet" disabled={busy} onClick={() => decide({ kind: "unrelated" })}>
             Not journal mail
           </button>
+          {proposal.sender_domain && (
+            <button
+              className="quiet"
+              disabled={busy}
+              onClick={() => void props.onBlockSender(proposal.sender_domain!)}
+            >
+              Never show mail from {proposal.sender_domain}
+            </button>
+          )}
         </div>
       )}
     </li>

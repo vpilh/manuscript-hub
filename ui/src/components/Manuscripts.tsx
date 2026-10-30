@@ -90,6 +90,7 @@ function LedgerRow(props: {
         <span className="ledger-paper">
           <span className="ledger-journal">{m.journal}</span>
           <span className="figures">{m.external_id ?? "No ID"}</span>
+          {m.title && <span className="ledger-title">{m.title}</span>}
         </span>
         <span className="ledger-due">
           {m.deadline && days !== null ? (

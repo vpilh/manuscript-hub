@@ -10,8 +10,8 @@ use mh_connectors::{mock::MockProvider, MailProvider};
 use mh_core::{Provider, TransientMessage};
 use mh_parser::{extract, CandidateRules, PARSER_VERSION};
 use mh_store::{
-    EventEdits, ManuscriptSummary, QueueItem, RecordOutcome, ReviewDecision, Store, StoreError,
-    TimelineEntry,
+    EventEdits, ManuscriptSummary, QueueItem, RecordOutcome, ReviewDecision, SenderRule,
+    SenderRuleKind, Store, StoreError, TimelineEntry,
 };
 use serde::Serialize;
 use tauri::{Manager, State};
@@ -25,6 +25,15 @@ const DEMO_MAILBOX: &[&str] = &[
     include_str!("../../fixtures/synthetic/multiple-manuscripts.eml"),
     include_str!("../../fixtures/synthetic/reply-quoting-old-decision.eml"),
     include_str!("../../fixtures/synthetic/publisher-newsletter.eml"),
+    include_str!("../../fixtures/synthetic/em-submission-confirmation.eml"),
+    include_str!("../../fixtures/synthetic/em-pdf-approval.eml"),
+    include_str!("../../fixtures/synthetic/em-revision-received.eml"),
+    include_str!("../../fixtures/synthetic/scholarone-minor-revision.eml"),
+    include_str!("../../fixtures/synthetic/tracker-under-review.eml"),
+    include_str!("../../fixtures/synthetic/annals-accepted.eml"),
+    include_str!("../../fixtures/synthetic/redaktion-abgelehnt-de.eml"),
+    include_str!("../../fixtures/synthetic/shop-order.eml"),
+    include_str!("../../fixtures/synthetic/ticket-review-request.eml"),
 ];
 const DEMO_ACCOUNT: &str = "Demo mailbox";
 const DATABASE_FILE: &str = "manuscript-hub.db";
@@ -78,8 +87,8 @@ fn app_info(state: State<'_, AppState>) -> AppInfo {
 #[tauri::command]
 fn scan_demo_mailbox(state: State<'_, AppState>) -> Result<ScanSummary, String> {
     let mut provider = MockProvider::from_eml(DEMO_ACCOUNT, DEMO_MAILBOX);
-    let rules = CandidateRules::default();
     state.with_store(|store| {
+        let rules = candidate_rules(store)?;
         let account = store.ensure_account(Provider::Mock, DEMO_ACCOUNT)?;
         let mut summary = ScanSummary::default();
         let mut cursor = None;
@@ -94,6 +103,38 @@ fn scan_demo_mailbox(state: State<'_, AppState>) -> Result<ScanSummary, String> 
             cursor = Some(batch.next_cursor);
         }
     })
+}
+
+/// The built-in candidate rules plus the user's sender rules.
+fn candidate_rules(store: &Store) -> Result<CandidateRules, StoreError> {
+    let mut rules = CandidateRules::default();
+    for rule in store.sender_rules()? {
+        match rule.kind {
+            SenderRuleKind::Journal => rules.trusted_domains.push(rule.domain),
+            SenderRuleKind::Ignore => rules.blocked_domains.push(rule.domain),
+        }
+    }
+    Ok(rules)
+}
+
+#[tauri::command]
+fn sender_rules(state: State<'_, AppState>) -> Result<Vec<SenderRule>, String> {
+    state.with_store(|store| store.sender_rules())
+}
+
+/// Returns how many waiting proposals an "ignore" rule set aside.
+#[tauri::command]
+fn set_sender_rule(
+    state: State<'_, AppState>,
+    domain: String,
+    kind: SenderRuleKind,
+) -> Result<usize, String> {
+    state.with_store(|store| store.set_sender_rule(&domain, kind))
+}
+
+#[tauri::command]
+fn remove_sender_rule(state: State<'_, AppState>, domain: String) -> Result<(), String> {
+    state.with_store(|store| store.remove_sender_rule(&domain))
 }
 
 /// Parses messages into the review queue; bodies are dropped with `messages`.
@@ -189,7 +230,10 @@ fn main() {
             mail::sync_mail_account,
             mail::set_check_interval,
             amend_event,
-            remove_event
+            remove_event,
+            sender_rules,
+            set_sender_rule,
+            remove_sender_rule
         ])
         .run(tauri::generate_context!())
         .expect("failed to start Manuscript Hub");

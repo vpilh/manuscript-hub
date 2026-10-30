@@ -12,6 +12,7 @@ import {
   type AppInfo,
   type MailAccount,
   type ManuscriptSummary,
+  type SenderRule,
   type QueueItem,
   type ScanSummary,
 } from "./lib/api";
@@ -52,6 +53,8 @@ export function App() {
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [manuscripts, setManuscripts] = useState<ManuscriptSummary[]>([]);
   const [accounts, setAccounts] = useState<MailAccount[]>([]);
+  const [senderRules, setSenderRules] = useState<SenderRule[]>([]);
+  const [notice, setNotice] = useState<string | null>(null);
   const [checking, setChecking] = useState<ReadonlySet<number>>(new Set());
   const [checkResults, setCheckResults] = useState<Record<number, string>>({});
   const [view, setView] = useState<View>(initialView);
@@ -61,14 +64,16 @@ export function App() {
 
   const refresh = useCallback(async () => {
     try {
-      const [q, m, a] = await Promise.all([
+      const [q, m, a, r] = await Promise.all([
         api.reviewQueue(),
         api.manuscripts(),
         api.mailAccounts(),
+        api.senderRules(),
       ]);
       setQueue(q);
       setManuscripts(m);
       setAccounts(a);
+      setSenderRules(r);
     } catch (e) {
       setError(String(e));
     }
@@ -126,6 +131,7 @@ export function App() {
   );
 
   async function scanDemo() {
+    setNotice(null);
     setScanning(true);
     await act(async () => setScan(await api.scanDemoMailbox()));
     setScanning(false);
@@ -139,7 +145,11 @@ export function App() {
         <p className="wordmark">Manuscript Hub</p>
         {live && (
           <nav aria-label="Views">
-            <RailLink active={view === "review"} onClick={() => show("review")} count={queue.length}>
+            <RailLink
+              active={view === "review"}
+              onClick={() => show("review")}
+              count={queue.length}
+            >
               <Inbox aria-hidden="true" size={18} />
               Review
             </RailLink>
@@ -202,6 +212,7 @@ export function App() {
             <div role="status" className="status-line">
               {scan &&
                 `Scanned ${scan.messages} sample messages: ${scan.proposed} new to review, ${scan.already_seen} seen before, ${scan.not_journal_mail} not journal mail.`}
+              {!scan && notice}
             </div>
             {error && (
               <p className="notice error" role="alert">
@@ -217,6 +228,19 @@ export function App() {
                 hasMailboxes={accounts.length > 0}
                 onScan={scanDemo}
                 onOpenMailboxes={() => show("mailboxes")}
+                onBlockSender={(domain) =>
+                  act(async () => {
+                    const dismissed = await api.setSenderRule(domain, "ignore");
+                    setScan(null);
+                    setNotice(
+                      `Mail from ${domain} won't be suggested again` +
+                        (dismissed > 0
+                          ? `; ${dismissed} waiting ${dismissed === 1 ? "item was" : "items were"} set aside.`
+                          : ".") +
+                        " You can undo this under Mailboxes, Sender rules.",
+                    );
+                  })
+                }
                 onDecide={(eventId, decision) => act(() => api.reviewEvent(eventId, decision))}
               />
             ) : view === "mailboxes" ? (
@@ -243,6 +267,13 @@ export function App() {
                   act(() => api.setCheckInterval(accountId, minutes))
                 }
                 onDisconnect={(accountId) => act(() => api.disconnectMailAccount(accountId))}
+                senderRules={senderRules}
+                onAddRule={async (domain, kind) => {
+                  // Errors (an invalid domain) are shown next to the form.
+                  await api.setSenderRule(domain, kind);
+                  await refresh();
+                }}
+                onRemoveRule={(domain) => act(() => api.removeSenderRule(domain))}
               />
             ) : (
               <Manuscripts

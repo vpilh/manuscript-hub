@@ -387,6 +387,13 @@ impl Store {
                     ],
                 )?,
             };
+            // Fill in a title the manuscript doesn't have yet; never replace one.
+            if let Some(title) = &title {
+                tx.execute(
+                    "UPDATE manuscripts SET title = ?2 WHERE id = ?1 AND title IS NULL",
+                    params![manuscript_id, title],
+                )?;
+            }
             Ok(())
         })
     }
@@ -550,6 +557,22 @@ impl Store {
 }
 
 /// Exact manuscript ID first, then title similarity (FR10).
+/// The ID without a revision suffix: `JBF-D-26-01235R1` and
+/// `ABC-2026-0123.R2` become `JBF-D-26-01235` and `ABC-2026-0123`.
+pub(crate) fn base_id(id: &str) -> &str {
+    let Some(r) = id.rfind(['R', 'r']) else {
+        return id;
+    };
+    let (stem, suffix) = (&id[..r], &id[r + 1..]);
+    let numbered = !suffix.is_empty() && suffix.chars().all(|c| c.is_ascii_digit());
+    let stem = stem.trim_end_matches(['.', '-', '_']);
+    if numbered && stem.ends_with(|c: char| c.is_ascii_digit()) {
+        stem
+    } else {
+        id
+    }
+}
+
 /// IDs with a letter prefix and several digits (`JBF-D-26-01235`) are issued
 /// by editorial systems and don't repeat across journals; short ones (`MS-001`)
 /// might.
@@ -566,11 +589,25 @@ fn find_match(
     title: Option<&str>,
 ) -> Result<Match, StoreError> {
     if let Some(id) = external_id {
-        let mut stmt =
-            conn.prepare("SELECT id, journal FROM manuscripts WHERE external_id = ?1")?;
+        // A revision's ID (`JBF-D-26-01235R1`) belongs to the original manuscript.
+        let base = base_id(id);
+        let mut stmt = conn.prepare(
+            "SELECT id, journal, external_id FROM manuscripts
+             WHERE external_id = ?1 OR external_id LIKE ?2 || '%'",
+        )?;
         let rows = stmt
-            .query_map([id], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))?
-            .collect::<Result<Vec<_>, _>>()?;
+            .query_map(params![id, base], |r| {
+                Ok((
+                    r.get::<_, i64>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .filter(|(_, _, known)| base_id(known) == base)
+            .map(|(manuscript, journal, _)| (manuscript, journal))
+            .collect::<Vec<_>>();
         if let Some(journal) = journal {
             // IDs issued by different journals are different manuscripts (PRD §6).
             return Ok(

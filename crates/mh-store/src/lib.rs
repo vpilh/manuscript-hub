@@ -11,6 +11,7 @@ mod error;
 mod matching;
 mod merge;
 mod review;
+mod sender_rules;
 mod store;
 
 pub use accounts::AccountSummary;
@@ -21,11 +22,17 @@ pub use review::{
     EventEdits, ManuscriptRef, ManuscriptSummary, MatchKind, QueueItem, RecordOutcome,
     ReviewDecision, TimelineEntry,
 };
+pub use sender_rules::{SenderRule, SenderRuleKind};
 pub use store::Store;
 
 /// Ordered schema migrations; `PRAGMA user_version` counts the applied ones.
-pub const MIGRATIONS: &[(&str, &str)] =
-    &[("0001_init", include_str!("../migrations/0001_init.sql"))];
+pub const MIGRATIONS: &[(&str, &str)] = &[
+    ("0001_init", include_str!("../migrations/0001_init.sql")),
+    (
+        "0002_sender_rules",
+        include_str!("../migrations/0002_sender_rules.sql"),
+    ),
+];
 
 #[cfg(test)]
 mod tests {

@@ -117,6 +117,10 @@ pub struct ProposedEvent {
     /// Empty for proposals stored before parser seed-0.5.
     #[serde(default)]
     pub reason: String,
+    /// The sender's domain, for sender rules ("never show mail from …").
+    /// `None` for proposals stored before parser seed-0.7.
+    #[serde(default)]
+    pub sender_domain: Option<String>,
     /// Why this message needs a human decision, if anything is uncertain.
     pub uncertainty: Vec<String>,
     pub review: ReviewState,
