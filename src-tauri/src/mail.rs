@@ -166,7 +166,17 @@ fn sync_folders(
     account: &MailAccount,
     password: &str,
 ) -> Result<ScanSummary, String> {
-    let rules = CandidateRules::default();
+    // Gmail's All Mail includes what the user sent; their own messages
+    // about a manuscript aren't news from the journal.
+    let username = account.settings.username.to_lowercase();
+    let rules = CandidateRules {
+        own_addresses: username
+            .contains('@')
+            .then_some(username)
+            .into_iter()
+            .collect(),
+        ..CandidateRules::default()
+    };
     let mut summary = ScanSummary::default();
     for folder in &account.settings.folders {
         let mut provider = ImapProvider::new(

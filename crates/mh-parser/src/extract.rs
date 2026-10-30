@@ -7,7 +7,7 @@ use crate::{
 };
 
 /// Recorded on every proposal for provenance (PRD §6).
-pub const PARSER_VERSION: &str = "seed-0.1";
+pub const PARSER_VERSION: &str = "seed-0.2";
 
 const DEADLINE_CUES: &[&str] = &[
     "due",
@@ -21,57 +21,141 @@ const DEADLINE_CUES: &[&str] = &[
 
 const BULK_MAIL_MARKERS: &[&str] = &["unsubscribe", "abmelden", "newsletter"];
 
+/// Editorial systems and publishers whose mail is worth reading even without
+/// editorial vocabulary. Subdomains match too.
+const KNOWN_SENDER_DOMAINS: &[&str] = &[
+    "editorialmanager.com",
+    "manuscriptcentral.com",
+    "scholarone.com",
+    "ejournalpress.com",
+    "editorialexpress.com",
+    "msubmit.net",
+    "elsevier.com",
+    "springernature.com",
+    "springer.com",
+    "nature.com",
+    "wiley.com",
+    "tandf.co.uk",
+    "tandfonline.com",
+    "sagepub.com",
+    "oup.com",
+    "cambridge.org",
+    "degruyter.com",
+    "emerald.com",
+    "mdpi.com",
+    "frontiersin.org",
+    "plos.org",
+    "aeaweb.org",
+    "informs.org",
+];
+
+/// Words that only editorial correspondence uses. Generic words such as
+/// "submission", "decision" or "reviewer" also appear in shop, job and
+/// software mail, so they don't count on their own.
+const EDITORIAL_TERMS: &[&str] = &[
+    "manuscript",
+    "manuskript",
+    "editorial office",
+    "editor-in-chief",
+    "handling editor",
+    "associate editor",
+    "referee report",
+    "reviewer comments",
+    "reviewers' comments",
+    "comments from the reviewers",
+    "peer review",
+    "peer-review",
+    "your submission to",
+    "submitted to the journal",
+    "begutachtung",
+    "gutachten",
+    "herausgeber",
+    "schriftleitung",
+];
+
+/// Sender names of submission systems, which name the system, not the journal.
+const PLATFORM_SENDER_NAMES: &[&str] = &[
+    "elsevier",
+    "editorial manager",
+    "scholarone",
+    "manuscript central",
+    "springer nature",
+    "track your",
+    "submission system",
+    "no-reply",
+    "noreply",
+    "do not reply",
+    "do-not-reply",
+];
+
 /// Which messages are worth parsing (FR07). User-defined rules extend the defaults.
 #[derive(Debug, Clone)]
 pub struct CandidateRules {
     /// Lowercase sender domains; subdomains match too.
     pub sender_domains: Vec<String>,
-    /// Lowercase subject keywords.
-    pub subject_keywords: Vec<String>,
+    /// Lowercase phrases that mark editorial correspondence, searched in the
+    /// subject and the unquoted body.
+    pub editorial_terms: Vec<String>,
+    /// Lowercase addresses of the mailbox owner. Their own messages (such as
+    /// Gmail's sent mail in All Mail) are never proposals.
+    pub own_addresses: Vec<String>,
 }
 
 impl Default for CandidateRules {
     fn default() -> Self {
-        let keywords = [
-            "manuscript",
-            "submission",
-            "decision",
-            "revision",
-            "manuskript",
-            "einreichung",
-            "entscheidung",
-            "begutachtung",
-            "überarbeitung",
-        ];
         Self {
-            sender_domains: Vec::new(),
-            subject_keywords: keywords.map(String::from).to_vec(),
+            sender_domains: KNOWN_SENDER_DOMAINS.iter().map(|d| d.to_string()).collect(),
+            editorial_terms: EDITORIAL_TERMS.iter().map(|t| t.to_string()).collect(),
+            own_addresses: Vec::new(),
         }
     }
 }
 
 impl CandidateRules {
-    fn matches(&self, message: &TransientMessage, has_manuscript_id: bool) -> bool {
-        let subject = message.subject.to_lowercase();
-        let domain = sender_domain(&message.from);
-        let known_sender = self.sender_domains.iter().any(|d| {
-            domain
-                .as_deref()
-                .is_some_and(|s| s == d || s.ends_with(&format!(".{d}")))
-        });
-        known_sender
-            || has_manuscript_id
-            || self
-                .subject_keywords
+    /// Mail from a known editorial sender needs an ID or a status. Any other
+    /// mail needs editorial vocabulary *and* a manuscript ID, because order
+    /// numbers and phrases like "has been submitted" are everywhere.
+    fn matches(
+        &self,
+        message: &TransientMessage,
+        searchable: &str,
+        has_id: bool,
+        has_status: bool,
+    ) -> bool {
+        let address = sender_address(&message.from);
+        if address
+            .as_deref()
+            .is_some_and(|a| self.own_addresses.iter().any(|own| own == a))
+        {
+            return false;
+        }
+        let domain = address
+            .as_deref()
+            .and_then(|a| a.rsplit_once('@'))
+            .map(|(_, d)| d);
+        let known_sender = self
+            .sender_domains
+            .iter()
+            .any(|d| domain.is_some_and(|s| s == d || s.ends_with(&format!(".{d}"))));
+        if known_sender {
+            return has_id || has_status;
+        }
+        let lower = searchable.to_lowercase();
+        has_id
+            && self
+                .editorial_terms
                 .iter()
-                .any(|k| subject.contains(k.as_str()))
+                .any(|t| lower.contains(t.as_str()))
     }
 }
 
-fn sender_domain(from: &str) -> Option<String> {
-    let (_, domain) = from.rsplit_once('@')?;
-    let domain = domain.trim_end_matches(|c: char| c == '>' || c.is_whitespace());
-    (!domain.is_empty()).then(|| domain.to_lowercase())
+/// `"Journal of X" <Editor@X.example>` → `editor@x.example`
+fn sender_address(from: &str) -> Option<String> {
+    let address = match from.rsplit_once('<') {
+        Some((_, rest)) => rest.trim_end_matches(|c: char| c == '>' || c.is_whitespace()),
+        None => from.trim(),
+    };
+    address.contains('@').then(|| address.to_lowercase())
 }
 
 /// `"Journal of X" <editor@x.example>` → `Journal of X`
@@ -79,6 +163,97 @@ fn sender_display_name(from: &str) -> Option<String> {
     let (name, _) = from.split_once('<')?;
     let name = name.trim().trim_matches('"').trim();
     (!name.is_empty()).then(|| name.to_string())
+}
+
+const TITLE_WORDS: &[&str] = &[
+    "journal",
+    "zeitschrift",
+    "review",
+    "annals",
+    "quarterly",
+    "proceedings",
+    "transactions",
+    "letters",
+];
+
+fn looks_like_journal_title(name: &str) -> bool {
+    name.split_whitespace()
+        .any(|w| TITLE_WORDS.contains(&w.to_lowercase().as_str()))
+}
+
+/// The journal, best evidence first: a sender name that reads like a journal
+/// title, a title such as "Journal of Banking and Finance" in the text, then
+/// any sender name that isn't a submission system's.
+fn find_journal(from: &str, searchable: &str) -> Option<Field<String>> {
+    let sender = sender_display_name(from);
+    if let Some(name) = sender.as_deref().filter(|n| looks_like_journal_title(n)) {
+        let name = name.trim_end_matches("Editorial Office").trim();
+        return Some(field(name.to_string(), name, 0.6));
+    }
+    if let Some(title) = find_journal_title(searchable) {
+        return Some(field(title.clone(), title, 0.5));
+    }
+    let name = sender?;
+    let lower = name.to_lowercase();
+    if PLATFORM_SENDER_NAMES.iter().any(|p| lower.contains(p)) {
+        return None;
+    }
+    Some(field(name.clone(), name, 0.3))
+}
+
+/// Finds "Journal of …", "Zeitschrift für …" and similar titles: the title
+/// word, a connector, then capitalized words (joined by "and", "&", "of", …).
+fn find_journal_title(text: &str) -> Option<String> {
+    const HEADS: &[&str] = &[
+        "Journal",
+        "Zeitschrift",
+        "Annals",
+        "Review",
+        "Proceedings",
+        "Transactions",
+    ];
+    const CONNECTORS: &[&str] = &["of", "for", "für", "on", "in"];
+    const JOINERS: &[&str] = &["and", "&", "of", "the", "for", "in", "und", "für"];
+    const ENDINGS: &[char] = &['.', ',', ':', ';', ')', '"', '\''];
+
+    let words: Vec<&str> = text.split_whitespace().collect();
+    for (i, pair) in words.windows(2).enumerate() {
+        if !HEADS.contains(&pair[0]) || !CONNECTORS.contains(&pair[1]) {
+            continue;
+        }
+        // Up to two capitalized words just before the title word belong to
+        // it, as in "Quarterly Journal of Economics".
+        let mut first = i;
+        while first > 0 && i - first < 2 {
+            let previous = words[first - 1];
+            if previous.starts_with(char::is_uppercase)
+                && !previous.ends_with(ENDINGS)
+                && previous != "The"
+            {
+                first -= 1;
+            } else {
+                break;
+            }
+        }
+        let mut title: Vec<&str> = words[first..=i + 1].to_vec();
+        for word in &words[i + 2..] {
+            let clean = word.trim_end_matches(ENDINGS);
+            if !clean.starts_with(char::is_uppercase) && !JOINERS.contains(&clean) {
+                break;
+            }
+            title.push(clean);
+            if clean.len() != word.len() {
+                break;
+            }
+        }
+        while title.last().is_some_and(|w| JOINERS.contains(w)) {
+            title.pop();
+        }
+        if title.len() > 2 {
+            return Some(title.join(" "));
+        }
+    }
+    None
 }
 
 fn field<T>(value: T, original: impl Into<String>, confidence: f32) -> Field<T> {
@@ -97,7 +272,7 @@ pub fn extract(message: &TransientMessage, rules: &CandidateRules) -> Option<Pro
     let ids = find_manuscript_ids(&searchable);
     let status = detect_status(&searchable);
 
-    if !rules.matches(message, !ids.is_empty()) {
+    if !rules.matches(message, &searchable, !ids.is_empty(), status.is_some()) {
         return None;
     }
     let lower_body = body.to_lowercase();
@@ -150,7 +325,7 @@ pub fn extract(message: &TransientMessage, rules: &CandidateRules) -> Option<Pro
 
     Some(ProposedEvent {
         source: message.source.clone(),
-        journal: sender_display_name(&message.from).map(|name| field(name.clone(), name, 0.5)),
+        journal: find_journal(&message.from, &searchable),
         manuscript_id,
         title: None,
         status,
@@ -281,7 +456,7 @@ mod tests {
         let msg = message(
             EDITOR,
             "Your submissions",
-            "JSS-2026-0142 and JSS-2026-0177 are now under review.",
+            "Manuscripts JSS-2026-0142 and JSS-2026-0177 are now under review.",
         );
         let event = extract(&msg, &CandidateRules::default()).unwrap();
         assert_eq!(event.manuscript_id.unwrap().confidence.value(), 0.4);
@@ -292,9 +467,97 @@ mod tests {
     fn known_sender_domains_match_subdomains() {
         let rules = CandidateRules {
             sender_domains: vec!["example.org".into()],
-            subject_keywords: Vec::new(),
+            ..CandidateRules::default()
         };
         let msg = message(EDITOR, "Hello", "Your paper is under review.");
         assert!(extract(&msg, &rules).is_some());
+        assert!(extract(&msg, &CandidateRules::default()).is_none());
+    }
+
+    #[test]
+    fn everyday_mail_with_references_is_not_journal_mail() {
+        for (from, subject, body) in [
+            (
+                "\"Shop\" <orders@shop.example.com>",
+                "Your order ORD-2026-55123 has been submitted",
+                "Thank you, your order has been submitted and is under review by our team.",
+            ),
+            (
+                "\"Careers\" <jobs@company.example.com>",
+                "Decision on your application",
+                "Your application REQ-2026-0042 has been accepted for the next round.",
+            ),
+            (
+                "\"Tracker\" <issues@tracker.example.com>",
+                "PROJ-12345 needs review",
+                "Reviewer requested on PROJ-12345. The change has been submitted.",
+            ),
+        ] {
+            let msg = message(from, subject, body);
+            assert!(
+                extract(&msg, &CandidateRules::default()).is_none(),
+                "{subject}"
+            );
+        }
+    }
+
+    #[test]
+    fn editorial_systems_count_without_vocabulary() {
+        let msg = message(
+            "\"Track your Elsevier submission\" <no-reply@track.elsevier.com>",
+            "Status update JBF-D-26-01235",
+            "Your submission to Journal of Banking and Finance is now under review.",
+        );
+        let event = extract(&msg, &CandidateRules::default()).unwrap();
+        assert_eq!(event.manuscript_id.unwrap().value, "JBF-D-26-01235");
+        assert_eq!(
+            event.journal.unwrap().value,
+            "Journal of Banking and Finance"
+        );
+    }
+
+    #[test]
+    fn own_messages_are_skipped() {
+        let rules = CandidateRules {
+            own_addresses: vec!["alex@example.org".into()],
+            ..CandidateRules::default()
+        };
+        let msg = message(
+            "Alex Example <Alex@example.org>",
+            "Fwd: manuscript JSS-2026-0142",
+            "FYI, the manuscript is under review.",
+        );
+        assert!(extract(&msg, &rules).is_none());
+        assert!(extract(&msg, &CandidateRules::default()).is_some());
+    }
+
+    #[test]
+    fn finds_journal_titles_in_text() {
+        let title = |text| find_journal_title(text);
+        assert_eq!(
+            title("submitted to the Quarterly Journal of Economics. Thanks").as_deref(),
+            Some("Quarterly Journal of Economics")
+        );
+        assert_eq!(
+            title("Ihr Beitrag für die Zeitschrift für Synthetische Studien wurde").as_deref(),
+            Some("Zeitschrift für Synthetische Studien")
+        );
+        assert_eq!(
+            title("Journal of Banking & Finance, Elsevier").as_deref(),
+            Some("Journal of Banking & Finance")
+        );
+        assert_eq!(title("see the journal of record"), None);
+    }
+
+    #[test]
+    fn journal_name_prefers_titles_over_people_and_systems() {
+        let journal = find_journal(
+            "Alex Example <alex@example.org>",
+            "Your manuscript for the Journal of Synthetic Studies",
+        );
+        assert_eq!(journal.unwrap().value, "Journal of Synthetic Studies");
+        let journal = find_journal("Alex Example <alex@example.org>", "no title here");
+        assert_eq!(journal.unwrap().confidence.value(), 0.3);
+        assert!(find_journal("\"Elsevier\" <no-reply@elsevier.com>", "no title").is_none());
     }
 }
