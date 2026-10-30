@@ -5,8 +5,8 @@ use mh_core::{
     SourceRef,
 };
 use mh_store::{
-    DbKey, EventEdits, MatchKind, RecordOutcome, ReminderStage, ReviewDecision, SenderRule,
-    SenderRuleKind, Store, StoreError,
+    DbKey, EventEdits, ManualTarget, ManualUpdate, MatchKind, RecordOutcome, ReminderStage,
+    ReviewDecision, SenderRule, SenderRuleKind, Store, StoreError,
 };
 
 const DAY: i64 = 86_400;
@@ -822,4 +822,80 @@ fn each_deadline_reminder_is_due_once_per_stage() {
     store.mark_reminder_sent(&last_day[0]).unwrap();
     let overdue = store.due_reminders(day(13)).unwrap();
     assert_eq!(overdue[0].stage, ReminderStage::Overdue);
+}
+
+#[test]
+fn manual_updates_create_or_extend_manuscripts_and_count_by_date() {
+    let (mut store, account) = setup();
+    let update = |status, day: u8| ManualUpdate {
+        occurred_on: CalendarDate::new(2026, 10, day).unwrap(),
+        status: Some(status),
+        deadline: None,
+        requested_action: None,
+    };
+    let id = store
+        .add_manual_update(
+            ManualTarget::New {
+                journal: " Journal of Synthetic Studies ".into(),
+                external_id: Some("JSS-1".into()),
+                title: Some("".into()),
+            },
+            update(EditorialStatus::Submitted, 1),
+        )
+        .unwrap();
+    let m = &store.manuscripts().unwrap()[0];
+    assert_eq!(
+        (m.id, m.journal.as_str(), m.title.as_deref()),
+        (id, "Journal of Synthetic Studies", None)
+    );
+
+    // Mail about the same ID now matches the hand-made manuscript.
+    record(
+        &mut store,
+        account,
+        &proposal(
+            "m1",
+            T0,
+            JSS,
+            Some("JSS-1"),
+            Some(EditorialStatus::UnderReview),
+            None,
+        ),
+    );
+    assert_eq!(
+        store.review_queue().unwrap()[0].match_kind,
+        MatchKind::ExactId
+    );
+
+    // An update dated earlier than the newest one doesn't change the status.
+    store
+        .add_manual_update(
+            ManualTarget::Existing { manuscript_id: id },
+            update(EditorialStatus::Accepted, 20),
+        )
+        .unwrap();
+    store
+        .add_manual_update(
+            ManualTarget::Existing { manuscript_id: id },
+            update(EditorialStatus::WithEditor, 5),
+        )
+        .unwrap();
+    assert_eq!(
+        store.manuscripts().unwrap()[0].status,
+        Some(EditorialStatus::Accepted)
+    );
+    let timeline = store.timeline(id).unwrap();
+    // Three manual updates plus the mail still waiting for review.
+    assert_eq!(timeline.len(), 4);
+    assert_eq!(timeline.iter().filter(|e| e.source.is_none()).count(), 3);
+
+    let empty = ManualUpdate {
+        occurred_on: CalendarDate::new(2026, 10, 1).unwrap(),
+        status: None,
+        deadline: None,
+        requested_action: Some("  ".into()),
+    };
+    assert!(store
+        .add_manual_update(ManualTarget::Existing { manuscript_id: id }, empty)
+        .is_err());
 }

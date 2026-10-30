@@ -8,6 +8,7 @@
 pub mod imap;
 pub mod imap_guard;
 pub mod mock;
+pub mod pasted;
 mod provider;
 mod rfc2822;
 

@@ -8,6 +8,7 @@
 mod accounts;
 mod crypto;
 mod error;
+mod manual;
 mod matching;
 mod merge;
 mod reminders;
@@ -18,6 +19,7 @@ mod store;
 pub use accounts::AccountSummary;
 pub use crypto::DbKey;
 pub use error::StoreError;
+pub use manual::{ManualTarget, ManualUpdate};
 pub use matching::{normalize_title, title_similarity, TITLE_MATCH_THRESHOLD};
 pub use reminders::{Reminder, ReminderStage};
 pub use review::{

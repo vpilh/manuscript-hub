@@ -817,6 +817,70 @@ button:disabled {
   min-width: 0;
 }
 
+.toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: var(--space-3);
+}
+
+.toolbar button {
+  min-height: 40px;
+  padding: 0 var(--space-4);
+  border-radius: var(--radius);
+  border: 1px solid var(--pencil);
+  background: transparent;
+  color: var(--pencil);
+  font-weight: 700;
+  transition: background-color var(--quick);
+}
+
+.toolbar button:hover {
+  background: var(--pencil-tint);
+}
+
+.add-update {
+  margin: var(--space-2) 0 var(--space-6);
+  padding: var(--space-5);
+  background: var(--sheet);
+  border-radius: var(--radius);
+  max-width: 44rem;
+}
+
+.add-update h2 {
+  margin: 0;
+  font-size: 1.25rem;
+  line-height: 1.3;
+}
+
+.add-update .choice {
+  margin-top: var(--space-3);
+}
+
+.add-update .field {
+  max-width: none;
+}
+
+.add-update .decide button {
+  min-height: 40px;
+}
+
+.field.paste {
+  max-width: none;
+}
+
+.field textarea {
+  min-height: 12rem;
+  padding: var(--space-2) var(--space-3);
+  font: inherit;
+  font-size: var(--t-small);
+  line-height: 1.45;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  resize: vertical;
+}
+
 .rules {
   margin-top: var(--space-6);
   max-width: 36rem;

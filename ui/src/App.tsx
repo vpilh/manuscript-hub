@@ -299,6 +299,16 @@ export function App() {
                 onMerge={(fromId, intoId) => act(() => api.mergeManuscripts(fromId, intoId))}
                 onAmend={(eventId, edits) => act(() => api.amendEvent(eventId, edits))}
                 onRemove={(eventId) => act(() => api.removeEvent(eventId))}
+                onAddManual={async (target, update) => {
+                  const id = await api.addManualUpdate(target, update);
+                  await refresh();
+                  return id;
+                }}
+                onPaste={async (text) => {
+                  const outcome = await api.importPastedMail(text);
+                  await refresh();
+                  return outcome;
+                }}
               />
             )}
           </section>

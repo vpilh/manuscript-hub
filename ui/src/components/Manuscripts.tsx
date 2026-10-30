@@ -1,7 +1,15 @@
 import { ChevronDown } from "lucide-react";
 import { useEffect, useId, useState } from "react";
 
-import { api, type EventEdits, type ManuscriptSummary, type TimelineEntry } from "../lib/api";
+import {
+  api,
+  type EventEdits,
+  type ManualTarget,
+  type ManualUpdate,
+  type ManuscriptSummary,
+  type PasteOutcome,
+  type TimelineEntry,
+} from "../lib/api";
 import {
   daysUntil,
   formatTimestamp,
@@ -10,6 +18,7 @@ import {
   relativeDue,
   statusLabel,
 } from "../lib/format";
+import { AddUpdate } from "./AddUpdate";
 import { EventForm } from "./EventForm";
 import { StatusMark } from "./StatusMark";
 
@@ -20,45 +29,79 @@ interface Props {
   onMerge: (fromId: number, intoId: number) => Promise<void>;
   onAmend: (eventId: number, edits: EventEdits) => Promise<void>;
   onRemove: (eventId: number) => Promise<void>;
+  onAddManual: (target: ManualTarget, update: ManualUpdate) => Promise<number>;
+  onPaste: (text: string) => Promise<PasteOutcome>;
 }
 
 export function Manuscripts(props: Props) {
   const { manuscripts, initialOpenId, onOpenReview, onMerge, onAmend, onRemove } = props;
+  const [adding, setAdding] = useState(false);
   const [openId, setOpenId] = useState<number | null>(initialOpenId);
+
+  const addPanel = adding && (
+    <AddUpdate
+      manuscripts={manuscripts}
+      onAddManual={props.onAddManual}
+      onPaste={props.onPaste}
+      onOpenReview={onOpenReview}
+      onDone={(manuscriptId) => {
+        setAdding(false);
+        if (manuscriptId !== null) setOpenId(manuscriptId);
+      }}
+    />
+  );
 
   if (manuscripts.length === 0) {
     return (
-      <div className="empty">
-        <p className="empty-title">No manuscripts tracked yet.</p>
-        <p>
-          Add a message from the review list and its manuscript starts here, with every update in
-          order.
-        </p>
-        <button className="secondary" onClick={onOpenReview}>
-          Go to review
-        </button>
-      </div>
+      <>
+        {addPanel || (
+          <div className="empty">
+            <p className="empty-title">No manuscripts tracked yet.</p>
+            <p>
+              Add a message from the review list and its manuscript starts here, with every update
+              in order. News that didn't come by mail can be added by hand.
+            </p>
+            <div className="decide">
+              <button className="secondary" onClick={onOpenReview}>
+                Go to review
+              </button>
+              <button className="quiet" onClick={() => setAdding(true)}>
+                Add an update by hand
+              </button>
+            </div>
+          </div>
+        )}
+      </>
     );
   }
 
   return (
-    <ul className="ledger" aria-label="Tracked manuscripts">
-      {manuscripts.map((m) => (
-        <LedgerRow
-          key={m.id}
-          manuscript={m}
-          open={openId === m.id}
-          onToggle={() => setOpenId(openId === m.id ? null : m.id)}
-          others={manuscripts.filter((other) => other.id !== m.id)}
-          onAmend={onAmend}
-          onRemove={onRemove}
-          onMerge={async (intoId) => {
-            await onMerge(m.id, intoId);
-            setOpenId(intoId);
-          }}
-        />
-      ))}
-    </ul>
+    <>
+      {addPanel || (
+        <div className="toolbar">
+          <button className="secondary" onClick={() => setAdding(true)}>
+            Add an update
+          </button>
+        </div>
+      )}
+      <ul className="ledger" aria-label="Tracked manuscripts">
+        {manuscripts.map((m) => (
+          <LedgerRow
+            key={m.id}
+            manuscript={m}
+            open={openId === m.id}
+            onToggle={() => setOpenId(openId === m.id ? null : m.id)}
+            others={manuscripts.filter((other) => other.id !== m.id)}
+            onAmend={onAmend}
+            onRemove={onRemove}
+            onMerge={async (intoId) => {
+              await onMerge(m.id, intoId);
+              setOpenId(intoId);
+            }}
+          />
+        ))}
+      </ul>
+    </>
   );
 }
 

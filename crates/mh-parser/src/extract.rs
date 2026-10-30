@@ -105,6 +105,9 @@ pub struct CandidateRules {
     /// Lowercase domains the user never wants proposals from; these win over
     /// every other rule.
     pub blocked_domains: Vec<String>,
+    /// The user handed this message over as journal mail (e.g. by pasting
+    /// it), so sender and vocabulary checks are skipped.
+    pub assume_journal_mail: bool,
 }
 
 impl Default for CandidateRules {
@@ -115,6 +118,7 @@ impl Default for CandidateRules {
             own_addresses: Vec::new(),
             trusted_domains: Vec::new(),
             blocked_domains: Vec::new(),
+            assume_journal_mail: false,
         }
     }
 }
@@ -143,6 +147,9 @@ impl CandidateRules {
         first_id: Option<&str>,
         has_status: bool,
     ) -> Option<String> {
+        if self.assume_journal_mail {
+            return Some("You pasted it in as journal mail.".to_string());
+        }
         let address = sender_address(&message.from);
         if address
             .as_deref()
@@ -590,6 +597,26 @@ mod tests {
         );
         assert!(extract(&editor, &CandidateRules::default()).is_some());
         assert!(extract(&editor, &blocking).is_none(), "blocking wins");
+    }
+
+    #[test]
+    fn pasted_mail_skips_the_sender_checks_but_needs_content() {
+        let pasted = CandidateRules {
+            assume_journal_mail: true,
+            ..CandidateRules::default()
+        };
+        let letter = message(
+            "",
+            "",
+            "Your paper SJ-2026-0042 has been sent out for review.",
+        );
+        assert!(extract(&letter, &CandidateRules::default()).is_none());
+        assert_eq!(
+            extract(&letter, &pasted).unwrap().reason,
+            "You pasted it in as journal mail."
+        );
+        let nothing = message("", "", "Thanks for lunch yesterday.");
+        assert!(extract(&nothing, &pasted).is_none());
     }
 
     #[test]

@@ -335,6 +335,54 @@ export const mockApi: Api = {
     );
     await wait(undefined);
   },
+  addManualUpdate: async (target, update) => {
+    if (!update.status && !update.deadline && !update.requested_action?.trim()) {
+      throw new Error("Enter a status, a deadline or something to do.");
+    }
+    let manuscript: ManuscriptSummary | undefined;
+    if (target.kind === "existing") {
+      manuscript = manuscripts.find((m) => m.id === target.manuscript_id);
+    } else {
+      if (!target.journal.trim()) throw new Error("Enter the journal's name.");
+      manuscript = {
+        id: Math.max(0, ...manuscripts.map((m) => m.id)) + 1,
+        journal: target.journal.trim(),
+        external_id: target.external_id?.trim() || null,
+        title: target.title?.trim() || null,
+        status: null,
+        status_since: null,
+        deadline: null,
+        requested_action: null,
+        pending_reviews: 0,
+      };
+      manuscripts = [manuscript, ...manuscripts];
+    }
+    if (!manuscript) throw new Error("manuscript not found");
+    const at = Date.UTC(update.occurred_on.year, update.occurred_on.month - 1, update.occurred_on.day, 12) / 1000;
+    (timelines[manuscript.id] ??= []).unshift({
+      event_id: Date.now(),
+      occurred_at: at,
+      review_state: "confirmed",
+      status: update.status,
+      original_phrase: null,
+      deadline: update.deadline,
+      requested_action: update.requested_action,
+      source: null,
+    });
+    if (update.status && (!manuscript.status_since || at >= manuscript.status_since)) {
+      manuscript.status = update.status;
+      manuscript.status_since = at;
+      manuscript.deadline = update.deadline;
+      manuscript.requested_action = update.requested_action;
+    }
+    await wait(undefined);
+    return manuscript.id;
+  },
+  // The preview can't parse mail: anything mentioning "revision" is proposed.
+  importPastedMail: async (text) => {
+    await wait(undefined);
+    return /revision|accept|review/i.test(text) ? "proposed" : "nothing_found";
+  },
   senderRules: () => wait(structuredClone(senderRules)),
   setSenderRule: async (value, kind) => {
     const domain = value.trim().split("@").pop()!.replace(/\.$/, "").toLowerCase();

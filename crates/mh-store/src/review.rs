@@ -796,7 +796,7 @@ fn current_state(conn: &Connection, summary: &mut ManuscriptSummary) -> Result<(
     Ok(())
 }
 
-fn ensure_manuscript_exists(conn: &Connection, id: i64) -> Result<(), StoreError> {
+pub(crate) fn ensure_manuscript_exists(conn: &Connection, id: i64) -> Result<(), StoreError> {
     conn.query_row("SELECT 1 FROM manuscripts WHERE id = ?1", [id], |_| Ok(()))
         .optional()?
         .ok_or(StoreError::NotFound {
@@ -805,7 +805,7 @@ fn ensure_manuscript_exists(conn: &Connection, id: i64) -> Result<(), StoreError
         })
 }
 
-fn create_manuscript(
+pub(crate) fn create_manuscript(
     conn: &Connection,
     journal: Option<&str>,
     external_id: Option<&str>,
