@@ -7,7 +7,7 @@ use crate::{
 };
 
 /// Recorded on every proposal for provenance (PRD §6).
-pub const PARSER_VERSION: &str = "seed-0.3";
+pub const PARSER_VERSION: &str = "seed-0.4";
 
 const DEADLINE_CUES: &[&str] = &[
     "due",
