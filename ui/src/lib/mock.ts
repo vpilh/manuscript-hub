@@ -53,6 +53,7 @@ function proposal(
     deadline: deadline ? field(dateIn(deadline[0]), "deadline", deadline[1]) : null,
     requested_action: action ? field(action) : null,
     parser_version: "seed-0.1",
+    reason: "Sent from editorialmanager.com, a known journal or editorial system.",
     uncertainty,
     review: "proposed",
   };
@@ -270,7 +271,7 @@ function withPendingCounts(): ManuscriptSummary[] {
 }
 
 export const mockApi: Api = {
-  appInfo: () => wait({ version: "0.1.0", parser_version: "seed-0.4", storage_error: null }),
+  appInfo: () => wait({ version: "0.1.0", parser_version: "seed-0.5", storage_error: null }),
   scanDemoMailbox: () =>
     wait({ messages: 6, proposed: 0, already_seen: 5, not_journal_mail: 1 }),
   reviewQueue: () => wait(structuredClone(queue)),
@@ -300,6 +301,34 @@ export const mockApi: Api = {
     manuscripts = manuscripts.filter((m) => m.id !== fromId);
     await wait(undefined);
   },
+  amendEvent: async (eventId, edits) => {
+    for (const entries of Object.values(timelines)) {
+      const entry = entries.find((e) => e.event_id === eventId);
+      if (entry) {
+        Object.assign(entry, {
+          review_state: "edited",
+          status: edits.status,
+          deadline: edits.deadline,
+          requested_action: edits.requested_action,
+        });
+      }
+    }
+    await wait(undefined);
+  },
+  removeEvent: async (eventId) => {
+    for (const id of Object.keys(timelines)) {
+      timelines[Number(id)] = timelines[Number(id)].filter((e) => e.event_id !== eventId);
+    }
+    await wait(undefined);
+  },
+  setCheckInterval: async (accountId, minutes) => {
+    accounts = accounts.map((a) =>
+      a.id === accountId ? { ...a, settings: { ...a.settings, check_every_minutes: minutes } } : a,
+    );
+    await wait(undefined);
+  },
+  // The browser preview has no scheduler, so there are no events to deliver.
+  onMailCheck: async () => () => {},
   mailAccounts: () => wait(structuredClone(accounts)),
   // The password "wrong" simulates a rejected login.
   connectMailAccount: async ({ provider, alias, settings, password }) => {

@@ -2,6 +2,7 @@ import { Inbox, Library, Lock, Mail } from "lucide-react";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 
 import { Mailboxes } from "./components/Mailboxes";
+import { scanSentence } from "./lib/format";
 import { Manuscripts } from "./components/Manuscripts";
 import { ReviewQueue } from "./components/ReviewQueue";
 import {
@@ -51,6 +52,8 @@ export function App() {
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [manuscripts, setManuscripts] = useState<ManuscriptSummary[]>([]);
   const [accounts, setAccounts] = useState<MailAccount[]>([]);
+  const [checking, setChecking] = useState<ReadonlySet<number>>(new Set());
+  const [checkResults, setCheckResults] = useState<Record<number, string>>({});
   const [view, setView] = useState<View>(initialView);
   const [error, setError] = useState<string | null>(null);
   const [scan, setScan] = useState<ScanSummary | null>(null);
@@ -80,6 +83,27 @@ export function App() {
       },
       (e) => setError(String(e)),
     );
+  }, [live, refresh]);
+
+  // Scheduled and manual checks report here; new proposals show up at once.
+  useEffect(() => {
+    if (!live) return;
+    const unlisten = api.onMailCheck((event) => {
+      setChecking((current) => {
+        const next = new Set(current);
+        if (event.running) next.add(event.account_id);
+        else next.delete(event.account_id);
+        return next;
+      });
+      if (!event.running) {
+        if (event.summary) {
+          const sentence = scanSentence(event.summary);
+          setCheckResults((r) => ({ ...r, [event.account_id]: sentence }));
+        }
+        void refresh();
+      }
+    });
+    return () => void unlisten.then((stop) => stop());
   }, [live, refresh]);
 
   const show = (next: View) => {
@@ -198,6 +222,8 @@ export function App() {
             ) : view === "mailboxes" ? (
               <Mailboxes
                 accounts={accounts}
+                checking={checking}
+                results={checkResults}
                 onConnect={async (draft) => {
                   const account = await api.connectMailAccount(draft);
                   await refresh();
@@ -205,11 +231,17 @@ export function App() {
                 }}
                 onSync={async (accountId) => {
                   try {
-                    return await api.syncMailAccount(accountId);
+                    const summary = await api.syncMailAccount(accountId);
+                    setCheckResults((r) => ({ ...r, [accountId]: scanSentence(summary) }));
+                  } catch {
+                    // The error is stored on the account and shown in its row.
                   } finally {
                     await refresh();
                   }
                 }}
+                onSetInterval={(accountId, minutes) =>
+                  act(() => api.setCheckInterval(accountId, minutes))
+                }
                 onDisconnect={(accountId) => act(() => api.disconnectMailAccount(accountId))}
               />
             ) : (
@@ -218,6 +250,8 @@ export function App() {
                 initialOpenId={initialOpenId()}
                 onOpenReview={() => show("review")}
                 onMerge={(fromId, intoId) => act(() => api.mergeManuscripts(fromId, intoId))}
+                onAmend={(eventId, edits) => act(() => api.amendEvent(eventId, edits))}
+                onRemove={(eventId) => act(() => api.removeEvent(eventId))}
               />
             )}
           </section>

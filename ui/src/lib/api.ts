@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 
 // Mirrors the serde output of the `mh_core` and `mh_store` types.
 
@@ -47,6 +48,8 @@ export interface ProposedEvent {
   deadline: Field<CalendarDate> | null;
   requested_action: Field<string> | null;
   parser_version: string;
+  /** Why the message was treated as journal mail; empty on older proposals. */
+  reason: string;
   uncertainty: string[];
   review: ReviewState;
 }
@@ -119,6 +122,8 @@ export interface ImapSettings {
   /** Empty when connecting: Gmail's All Mail (or the inbox) is chosen automatically. */
   folders: string[];
   backfill_days: number;
+  /** Minutes between automatic checks; 0 means only on request. */
+  check_every_minutes: number;
 }
 
 export type MailProvider = "gmail" | "groupwise_imap";
@@ -131,6 +136,14 @@ export interface MailAccount {
   /** Unix seconds of the last successful check. */
   last_sync_at: number | null;
   last_error: string | null;
+}
+
+/** Sent by the backend when a mailbox check starts (`running`) and ends. */
+export interface CheckEvent {
+  account_id: number;
+  running: boolean;
+  summary: ScanSummary | null;
+  error: string | null;
 }
 
 export interface NewMailAccount {
@@ -164,12 +177,20 @@ const desktopApi = {
   timeline: (manuscriptId: number) => invoke<TimelineEntry[]>("timeline", { manuscriptId }),
   mergeManuscripts: (fromId: number, intoId: number) =>
     invoke<void>("merge_manuscripts", { fromId, intoId }),
+  amendEvent: (eventId: number, edits: EventEdits) =>
+    invoke<void>("amend_event", { eventId, edits }),
+  removeEvent: (eventId: number) => invoke<void>("remove_event", { eventId }),
   mailAccounts: () => invoke<MailAccount[]>("mail_accounts"),
   connectMailAccount: (account: NewMailAccount) =>
     invoke<MailAccount>("connect_mail_account", { account }),
   disconnectMailAccount: (accountId: number) =>
     invoke<void>("disconnect_mail_account", { accountId }),
   syncMailAccount: (accountId: number) => invoke<ScanSummary>("sync_mail_account", { accountId }),
+  setCheckInterval: (accountId: number, minutes: number) =>
+    invoke<void>("set_check_interval", { accountId, minutes }),
+  /** Calls `handler` for every check, including scheduled ones; resolves to an unsubscribe function. */
+  onMailCheck: (handler: (event: CheckEvent) => void): Promise<() => void> =>
+    listen<CheckEvent>("mail-check", (e) => handler(e.payload)),
 };
 
 /** In a dev browser (`npm run dev`) the UI runs on an in-memory mock; production builds never include it. */

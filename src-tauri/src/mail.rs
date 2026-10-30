@@ -1,10 +1,14 @@
-//! Mailbox accounts over IMAP (WP 2.2): connect, check for new mail, disconnect.
+//! Mailbox accounts over IMAP (WP 2.2, 2.4): connect, check for new mail on
+//! a schedule or on request, disconnect.
 //!
 //! Passwords go from the setup form straight into the OS keychain and are read
-//! back only to log in. Network work runs on a blocking thread so the window
+//! back only to log in. Network work runs off the UI thread so the window
 //! stays responsive.
 
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, MutexGuard};
+use std::thread;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use mh_connectors::imap::{check_account, Folder, ImapProvider, ImapSettings};
 use mh_connectors::{MailProvider, ProviderError, SyncCursor};
@@ -12,7 +16,7 @@ use mh_core::Provider;
 use mh_parser::CandidateRules;
 use mh_store::{AccountSummary, Store};
 use serde::{Deserialize, Serialize};
-use tauri::State;
+use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::{keychain, record_batch, AppState, ScanSummary};
 
@@ -140,12 +144,153 @@ pub fn disconnect_mail_account(state: State<'_, AppState>, account_id: i64) -> R
 }
 
 #[tauri::command]
+pub fn set_check_interval(
+    state: State<'_, AppState>,
+    account_id: i64,
+    minutes: u32,
+) -> Result<(), String> {
+    state.with_store(|store| {
+        let account = store.account(account_id)?;
+        let mut settings: ImapSettings = serde_json::from_str(&account.settings_json)?;
+        settings.check_every_minutes = minutes;
+        store.update_account_settings(account_id, &serde_json::to_string(&settings)?)
+    })
+}
+
+#[tauri::command]
 pub async fn sync_mail_account(
+    app: AppHandle,
     state: State<'_, AppState>,
     account_id: i64,
 ) -> Result<ScanSummary, String> {
     let store = state.handle()?;
-    blocking(move || sync(&store, account_id)).await
+    blocking(move || check(&app, &store, account_id)).await
+}
+
+/// Accounts being checked right now, and when each check last started.
+#[derive(Default)]
+pub struct Checks {
+    running: Mutex<HashSet<i64>>,
+    started: Mutex<HashMap<i64, i64>>,
+}
+
+/// Sent to the window when a check starts and when it ends.
+#[derive(Clone, Serialize)]
+struct CheckEvent {
+    account_id: i64,
+    running: bool,
+    summary: Option<ScanSummary>,
+    error: Option<String>,
+}
+
+const CHECK_EVENT: &str = "mail-check";
+
+/// One check of one account, unless it is already being checked.
+fn check(
+    app: &AppHandle,
+    store: &Arc<Mutex<Store>>,
+    account_id: i64,
+) -> Result<ScanSummary, String> {
+    let checks = app.state::<Checks>();
+    if !checks
+        .running
+        .lock()
+        .map_err(|_| "check registry poisoned")?
+        .insert(account_id)
+    {
+        return Err("This mailbox is being checked right now.".into());
+    }
+    if let Ok(mut started) = checks.started.lock() {
+        started.insert(account_id, unix_now());
+    }
+    let _ = app.emit(
+        CHECK_EVENT,
+        CheckEvent {
+            account_id,
+            running: true,
+            summary: None,
+            error: None,
+        },
+    );
+    let result = sync(store, account_id);
+    if let Ok(mut running) = checks.running.lock() {
+        running.remove(&account_id);
+    }
+    let _ = app.emit(
+        CHECK_EVENT,
+        CheckEvent {
+            account_id,
+            running: false,
+            summary: result.as_ref().ok().cloned(),
+            error: result.as_ref().err().cloned(),
+        },
+    );
+    result
+}
+
+const FIRST_CHECK_DELAY: Duration = Duration::from_secs(20);
+const TICK: Duration = Duration::from_secs(60);
+
+/// Checks every account whose interval has passed, once a minute. Comparing
+/// wall-clock times catches up after sleep or time offline.
+pub fn start_background_checks(app: AppHandle) {
+    thread::spawn(move || {
+        thread::sleep(FIRST_CHECK_DELAY);
+        loop {
+            check_due_accounts(&app);
+            thread::sleep(TICK);
+        }
+    });
+}
+
+fn check_due_accounts(app: &AppHandle) {
+    let Ok(store) = app.state::<AppState>().handle() else {
+        return;
+    };
+    let accounts = match lock(&store).map(|s| s.accounts()) {
+        Ok(Ok(accounts)) => accounts,
+        _ => return,
+    };
+    for account in accounts.into_iter().filter_map(to_view) {
+        let started = app
+            .state::<Checks>()
+            .started
+            .lock()
+            .ok()
+            .and_then(|s| s.get(&account.id).copied());
+        if is_due(
+            unix_now(),
+            account.settings.check_every_minutes,
+            account.last_sync_at,
+            started,
+        ) {
+            // Errors are stored on the account and shown in its row.
+            let _ = check(app, &store, account.id);
+        }
+    }
+}
+
+/// Whether an account's next automatic check is due. Failed attempts count
+/// too, so an unreachable server is retried at the interval, not every minute.
+fn is_due(
+    now: i64,
+    every_minutes: u32,
+    last_success: Option<i64>,
+    last_start: Option<i64>,
+) -> bool {
+    if every_minutes == 0 {
+        return false;
+    }
+    match last_success.max(last_start) {
+        None => true,
+        Some(last) => now - last >= i64::from(every_minutes) * 60,
+    }
+}
+
+fn unix_now() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs() as i64)
 }
 
 fn sync(store: &Arc<Mutex<Store>>, account_id: i64) -> Result<ScanSummary, String> {
@@ -254,6 +399,31 @@ mod tests {
             choose_folders(&[], &[folder("INBOX", false)]).unwrap(),
             ["INBOX"]
         );
+    }
+
+    #[test]
+    fn new_mail_is_picked_up_within_the_interval() {
+        // A fake clock ticking like the background loop: the first check after
+        // a successful one happens no later than interval + one tick.
+        let synced = 1_000_000;
+        let tick = TICK.as_secs() as i64;
+        let first_due = (0..)
+            .map(|n| synced + n * tick)
+            .find(|&now| is_due(now, 15, Some(synced), Some(synced)))
+            .unwrap();
+        assert!(first_due - synced >= 15 * 60);
+        assert!(first_due - synced <= 15 * 60 + tick);
+    }
+
+    #[test]
+    fn schedule_respects_manual_only_failures_and_sleep() {
+        let now = 1_000_000;
+        assert!(is_due(now, 15, None, None), "never checked");
+        assert!(!is_due(now, 0, None, None), "manual only");
+        // A failed attempt a minute ago: wait for the interval, don't retry at once.
+        assert!(!is_due(now, 15, Some(now - 3600), Some(now - 60)));
+        // Woke up after a night asleep: due straight away.
+        assert!(is_due(now, 15, Some(now - 8 * 3600), Some(now - 8 * 3600)));
     }
 
     #[test]

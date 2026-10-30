@@ -180,6 +180,7 @@ fn settings() -> ImapSettings {
         username: "researcher@example.org".into(),
         folders: vec!["[Gmail]/All Mail".into()],
         backfill_days: 365,
+        check_every_minutes: 15,
     }
 }
 
