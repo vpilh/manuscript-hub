@@ -6,6 +6,7 @@
 //! stays responsive.
 
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -17,7 +18,7 @@ use mh_store::{AccountSummary, Store};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
 
-use crate::{candidate_rules, keychain, record_batch, AppState, ScanSummary};
+use crate::{candidate_rules, keychain, notify, record_batch, tray, AppState, ScanSummary};
 
 #[derive(Serialize)]
 pub struct MailAccount {
@@ -163,7 +164,39 @@ pub async fn sync_mail_account(
     account_id: i64,
 ) -> Result<ScanSummary, String> {
     let store = state.handle()?;
-    blocking(move || check(&app, &store, account_id)).await
+    // The user is looking at the result, so no notification.
+    blocking(move || check(&app, &store, account_id, false)).await
+}
+
+#[tauri::command]
+pub fn checks_paused(app: AppHandle) -> bool {
+    is_paused(&app)
+}
+
+#[tauri::command]
+pub fn set_checks_paused(app: AppHandle, paused: bool) {
+    set_paused(&app, paused);
+}
+
+pub fn is_paused(app: &AppHandle) -> bool {
+    app.state::<Checks>().paused.load(Ordering::Relaxed)
+}
+
+/// Pauses or resumes automatic checks; the tray and the window follow.
+/// Not saved: every start resumes checking.
+pub fn set_paused(app: &AppHandle, paused: bool) {
+    app.state::<Checks>()
+        .paused
+        .store(paused, Ordering::Relaxed);
+    tray::show_paused(app, paused);
+    let _ = app.emit(PAUSED_EVENT, paused);
+}
+
+const PAUSED_EVENT: &str = "checks-paused";
+
+/// Checks every mailbox now, paused or not, off the calling thread.
+pub fn check_all_now(app: AppHandle) {
+    thread::spawn(move || check_accounts(&app, true));
 }
 
 /// Accounts being checked right now, and when each check last started.
@@ -171,6 +204,7 @@ pub async fn sync_mail_account(
 pub struct Checks {
     running: Mutex<HashSet<i64>>,
     started: Mutex<HashMap<i64, i64>>,
+    paused: AtomicBool,
 }
 
 /// Sent to the window when a check starts and when it ends.
@@ -184,11 +218,13 @@ struct CheckEvent {
 
 const CHECK_EVENT: &str = "mail-check";
 
-/// One check of one account, unless it is already being checked.
+/// One check of one account, unless it is already being checked. With
+/// `notify_new`, new proposals also raise a desktop notification.
 fn check(
     app: &AppHandle,
     store: &Arc<Mutex<Store>>,
     account_id: i64,
+    notify_new: bool,
 ) -> Result<ScanSummary, String> {
     let checks = app.state::<Checks>();
     if !checks
@@ -215,6 +251,11 @@ fn check(
     if let Ok(mut running) = checks.running.lock() {
         running.remove(&account_id);
     }
+    if let Ok(summary) = &result {
+        if notify_new && summary.proposed > 0 {
+            notify::new_mail(app, summary.proposed);
+        }
+    }
     let _ = app.emit(
         CHECK_EVENT,
         CheckEvent {
@@ -230,19 +271,24 @@ fn check(
 const FIRST_CHECK_DELAY: Duration = Duration::from_secs(20);
 const TICK: Duration = Duration::from_secs(60);
 
-/// Checks every account whose interval has passed, once a minute. Comparing
-/// wall-clock times catches up after sleep or time offline.
+/// Once a minute: checks every account whose interval has passed and shows
+/// due deadline reminders. Comparing wall-clock times catches up after sleep
+/// or time offline.
 pub fn start_background_checks(app: AppHandle) {
     thread::spawn(move || {
         thread::sleep(FIRST_CHECK_DELAY);
         loop {
-            check_due_accounts(&app);
+            if !is_paused(&app) {
+                check_accounts(&app, false);
+            }
+            notify::deadline_reminders(&app);
             thread::sleep(TICK);
         }
     });
 }
 
-fn check_due_accounts(app: &AppHandle) {
+/// Checks the accounts that are due, or all of them with `all`.
+fn check_accounts(app: &AppHandle, all: bool) {
     let Ok(store) = app.state::<AppState>().handle() else {
         return;
     };
@@ -257,14 +303,15 @@ fn check_due_accounts(app: &AppHandle) {
             .lock()
             .ok()
             .and_then(|s| s.get(&account.id).copied());
-        if is_due(
+        let due = is_due(
             unix_now(),
             account.settings.check_every_minutes,
             account.last_sync_at,
             started,
-        ) {
+        );
+        if all || due {
             // Errors are stored on the account and shown in its row.
-            let _ = check(app, &store, account.id);
+            let _ = check(app, &store, account.id, true);
         }
     }
 }

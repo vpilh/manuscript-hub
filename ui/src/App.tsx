@@ -55,6 +55,7 @@ export function App() {
   const [accounts, setAccounts] = useState<MailAccount[]>([]);
   const [senderRules, setSenderRules] = useState<SenderRule[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
+  const [paused, setPaused] = useState(false);
   const [checking, setChecking] = useState<ReadonlySet<number>>(new Set());
   const [checkResults, setCheckResults] = useState<Record<number, string>>({});
   const [view, setView] = useState<View>(initialView);
@@ -89,6 +90,13 @@ export function App() {
       (e) => setError(String(e)),
     );
   }, [live, refresh]);
+
+  useEffect(() => {
+    if (!live) return;
+    void api.checksPaused().then(setPaused, () => {});
+    const unlisten = api.onChecksPaused(setPaused);
+    return () => void unlisten.then((stop) => stop());
+  }, [live]);
 
   // Scheduled and manual checks report here; new proposals show up at once.
   useEffect(() => {
@@ -176,6 +184,14 @@ export function App() {
             <button className="secondary" onClick={scanDemo} disabled={scanning || !!storageError}>
               {scanning ? "Scanning…" : "Scan demo mailbox"}
             </button>
+          )}
+          {live && accounts.length > 0 && (
+            <p className="checks-state" role="status">
+              {paused ? "Automatic checks are paused." : "Mailboxes are checked automatically."}{" "}
+              <button className="link" onClick={() => void api.setChecksPaused(!paused)}>
+                {paused ? "Resume" : "Pause"}
+              </button>
+            </p>
           )}
           <p className="privacy">
             <Lock aria-hidden="true" size={14} />
@@ -283,6 +299,16 @@ export function App() {
                 onMerge={(fromId, intoId) => act(() => api.mergeManuscripts(fromId, intoId))}
                 onAmend={(eventId, edits) => act(() => api.amendEvent(eventId, edits))}
                 onRemove={(eventId) => act(() => api.removeEvent(eventId))}
+                onAddManual={async (target, update) => {
+                  const id = await api.addManualUpdate(target, update);
+                  await refresh();
+                  return id;
+                }}
+                onPaste={async (text) => {
+                  const outcome = await api.importPastedMail(text);
+                  await refresh();
+                  return outcome;
+                }}
               />
             )}
           </section>

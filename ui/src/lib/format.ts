@@ -105,3 +105,25 @@ export function scanSentence(scan: ScanSummary): string {
   const fresh = scan.proposed === 1 ? "1 new to review" : `${scan.proposed} new to review`;
   return `${read}: ${fresh}, ${scan.already_seen} seen before, ${scan.not_journal_mail} not journal mail.`;
 }
+
+const FINISHED: EditorialStatus[] = ["accepted", "rejected", "withdrawn"];
+const WITH_THE_JOURNAL: EditorialStatus[] = ["submitted", "with_editor", "under_review", "revised"];
+
+/** Accepted, rejected or withdrawn: nothing more is expected. */
+export function isFinished(status: EditorialStatus | null): boolean {
+  return status !== null && FINISHED.includes(status);
+}
+
+/** How long the journal has had the manuscript, for statuses where the author waits. */
+export function waitingFor(
+  status: EditorialStatus | null,
+  sinceSeconds: number | null,
+  nowSeconds: number,
+): string | null {
+  if (!status || sinceSeconds === null || !WITH_THE_JOURNAL.includes(status)) return null;
+  const days = Math.floor((nowSeconds - sinceSeconds) / 86_400);
+  if (days < 1) return null;
+  if (days < 14) return days === 1 ? "waiting 1 day" : `waiting ${days} days`;
+  if (days < 60) return `waiting ${Math.floor(days / 7)} weeks`;
+  return `waiting ${Math.floor(days / 30)} months`;
+}

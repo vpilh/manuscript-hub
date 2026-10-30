@@ -113,6 +113,20 @@ export interface ScanSummary {
   not_journal_mail: number;
 }
 
+export type ManualTarget =
+  | { kind: "existing"; manuscript_id: number }
+  | { kind: "new"; journal: string; external_id: string | null; title: string | null };
+
+export interface ManualUpdate {
+  occurred_on: CalendarDate;
+  status: EditorialStatus | null;
+  deadline: CalendarDate | null;
+  requested_action: string | null;
+}
+
+/** What happened to a pasted message. */
+export type PasteOutcome = "proposed" | "duplicate" | "nothing_found";
+
 /** "journal": always journal mail; "ignore": never. */
 export type SenderRuleKind = "journal" | "ignore";
 
@@ -196,6 +210,10 @@ const desktopApi = {
   disconnectMailAccount: (accountId: number) =>
     invoke<void>("disconnect_mail_account", { accountId }),
   syncMailAccount: (accountId: number) => invoke<ScanSummary>("sync_mail_account", { accountId }),
+  /** Resolves to the manuscript the update was added to. */
+  addManualUpdate: (target: ManualTarget, update: ManualUpdate) =>
+    invoke<number>("add_manual_update", { target, update }),
+  importPastedMail: (text: string) => invoke<PasteOutcome>("import_pasted_mail", { text }),
   senderRules: () => invoke<SenderRule[]>("sender_rules"),
   /** Resolves to how many waiting proposals an "ignore" rule set aside. */
   setSenderRule: (domain: string, kind: SenderRuleKind) =>
@@ -203,6 +221,11 @@ const desktopApi = {
   removeSenderRule: (domain: string) => invoke<void>("remove_sender_rule", { domain }),
   setCheckInterval: (accountId: number, minutes: number) =>
     invoke<void>("set_check_interval", { accountId, minutes }),
+  checksPaused: () => invoke<boolean>("checks_paused"),
+  setChecksPaused: (paused: boolean) => invoke<void>("set_checks_paused", { paused }),
+  /** Follows pausing from the tray menu too; resolves to an unsubscribe function. */
+  onChecksPaused: (handler: (paused: boolean) => void): Promise<() => void> =>
+    listen<boolean>("checks-paused", (e) => handler(e.payload)),
   /** Calls `handler` for every check, including scheduled ones; resolves to an unsubscribe function. */
   onMailCheck: (handler: (event: CheckEvent) => void): Promise<() => void> =>
     listen<CheckEvent>("mail-check", (e) => handler(e.payload)),

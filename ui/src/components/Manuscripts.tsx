@@ -1,17 +1,70 @@
 import { ChevronDown } from "lucide-react";
 import { useEffect, useId, useState } from "react";
 
-import { api, type EventEdits, type ManuscriptSummary, type TimelineEntry } from "../lib/api";
+import {
+  api,
+  type EventEdits,
+  type ManualTarget,
+  type ManualUpdate,
+  type ManuscriptSummary,
+  type PasteOutcome,
+  type TimelineEntry,
+} from "../lib/api";
 import {
   daysUntil,
   formatTimestamp,
+  isFinished,
   isUrgent,
   longDate,
   relativeDue,
   statusLabel,
+  waitingFor,
 } from "../lib/format";
+import { AddUpdate } from "./AddUpdate";
 import { EventForm } from "./EventForm";
 import { StatusMark } from "./StatusMark";
+
+type Filter = "open" | "finished" | "all";
+type Sort = "deadline" | "updated" | "journal";
+
+const FILTERS: { value: Filter; label: string }[] = [
+  { value: "open", label: "Open" },
+  { value: "finished", label: "Finished" },
+  { value: "all", label: "All" },
+];
+
+const SORTS: { value: Sort; label: string }[] = [
+  { value: "deadline", label: "Next deadline first" },
+  { value: "updated", label: "Latest update first" },
+  { value: "journal", label: "Journal name" },
+];
+
+/** Finished: a final decision and nothing left to do, such as returning a licence form. */
+function finished(m: ManuscriptSummary): boolean {
+  const deadlineAhead = m.deadline !== null && daysUntil(m.deadline, new Date()) >= 0;
+  return isFinished(m.status) && !deadlineAhead;
+}
+
+function matches(filter: Filter, m: ManuscriptSummary): boolean {
+  if (filter === "all") return true;
+  return finished(m) === (filter === "finished");
+}
+
+function deadlineKey(m: ManuscriptSummary): number {
+  return m.deadline ? Date.UTC(m.deadline.year, m.deadline.month - 1, m.deadline.day) : Infinity;
+}
+
+function compare(sort: Sort, a: ManuscriptSummary, b: ManuscriptSummary): number {
+  const latest = (b.status_since ?? 0) - (a.status_since ?? 0);
+  switch (sort) {
+    case "deadline":
+      return deadlineKey(a) - deadlineKey(b) || latest;
+    case "updated":
+      return latest;
+    case "journal":
+      return a.journal.localeCompare(b.journal) || latest;
+  }
+}
 
 interface Props {
   manuscripts: ManuscriptSummary[];
@@ -20,45 +73,116 @@ interface Props {
   onMerge: (fromId: number, intoId: number) => Promise<void>;
   onAmend: (eventId: number, edits: EventEdits) => Promise<void>;
   onRemove: (eventId: number) => Promise<void>;
+  onAddManual: (target: ManualTarget, update: ManualUpdate) => Promise<number>;
+  onPaste: (text: string) => Promise<PasteOutcome>;
 }
 
 export function Manuscripts(props: Props) {
   const { manuscripts, initialOpenId, onOpenReview, onMerge, onAmend, onRemove } = props;
+  const [adding, setAdding] = useState(false);
   const [openId, setOpenId] = useState<number | null>(initialOpenId);
+  const [filter, setFilter] = useState<Filter>("open");
+  const [sort, setSort] = useState<Sort>("deadline");
+  const sortId = useId();
+
+  const counts = Object.fromEntries(
+    FILTERS.map((f) => [f.value, manuscripts.filter((m) => matches(f.value, m)).length]),
+  ) as Record<Filter, number>;
+  const visible = manuscripts.filter((m) => matches(filter, m)).sort((a, b) => compare(sort, a, b));
+
+  const addPanel = adding && (
+    <AddUpdate
+      manuscripts={manuscripts}
+      onAddManual={props.onAddManual}
+      onPaste={props.onPaste}
+      onOpenReview={onOpenReview}
+      onDone={(manuscriptId) => {
+        setAdding(false);
+        if (manuscriptId !== null) setOpenId(manuscriptId);
+      }}
+    />
+  );
 
   if (manuscripts.length === 0) {
     return (
-      <div className="empty">
-        <p className="empty-title">No manuscripts tracked yet.</p>
-        <p>
-          Add a message from the review list and its manuscript starts here, with every update in
-          order.
-        </p>
-        <button className="secondary" onClick={onOpenReview}>
-          Go to review
-        </button>
-      </div>
+      <>
+        {addPanel || (
+          <div className="empty">
+            <p className="empty-title">No manuscripts tracked yet.</p>
+            <p>
+              Add a message from the review list and its manuscript starts here, with every update
+              in order. News that didn't come by mail can be added by hand.
+            </p>
+            <div className="decide">
+              <button className="secondary" onClick={onOpenReview}>
+                Go to review
+              </button>
+              <button className="quiet" onClick={() => setAdding(true)}>
+                Add an update by hand
+              </button>
+            </div>
+          </div>
+        )}
+      </>
     );
   }
 
   return (
-    <ul className="ledger" aria-label="Tracked manuscripts">
-      {manuscripts.map((m) => (
-        <LedgerRow
-          key={m.id}
-          manuscript={m}
-          open={openId === m.id}
-          onToggle={() => setOpenId(openId === m.id ? null : m.id)}
-          others={manuscripts.filter((other) => other.id !== m.id)}
-          onAmend={onAmend}
-          onRemove={onRemove}
-          onMerge={async (intoId) => {
-            await onMerge(m.id, intoId);
-            setOpenId(intoId);
-          }}
-        />
-      ))}
-    </ul>
+    <>
+      {addPanel}
+      <div className="toolbar">
+        <div className="segments" role="group" aria-label="Show">
+          {FILTERS.map((f) => (
+            <button
+              key={f.value}
+              aria-pressed={filter === f.value}
+              onClick={() => setFilter(f.value)}
+            >
+              {f.label} <span className="segment-count">{counts[f.value]}</span>
+            </button>
+          ))}
+        </div>
+        <label className="sort" htmlFor={sortId}>
+          <span className="since">Sort</span>
+          <select id={sortId} value={sort} onChange={(e) => setSort(e.target.value as Sort)}>
+            {SORTS.map((s) => (
+              <option key={s.value} value={s.value}>
+                {s.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        {!adding && (
+          <button className="add" onClick={() => setAdding(true)}>
+            Add an update
+          </button>
+        )}
+      </div>
+      {visible.length === 0 && (
+        <p className="empty-filter">
+          {filter === "open"
+            ? "Nothing open: every manuscript has a final decision."
+            : "No accepted, rejected or withdrawn manuscripts yet."}
+        </p>
+      )}
+      <ul className="ledger" aria-label="Tracked manuscripts">
+        {visible.map((m) => (
+          <LedgerRow
+            key={m.id}
+            manuscript={m}
+            open={openId === m.id}
+            onToggle={() => setOpenId(openId === m.id ? null : m.id)}
+            others={manuscripts.filter((other) => other.id !== m.id)}
+            onAmend={onAmend}
+            onRemove={onRemove}
+            onMerge={async (intoId) => {
+              await onMerge(m.id, intoId);
+              setOpenId(intoId);
+            }}
+          />
+        ))}
+      </ul>
+    </>
   );
 }
 
@@ -74,6 +198,7 @@ function LedgerRow(props: {
   const { manuscript: m, open, onToggle } = props;
   const panelId = useId();
   const days = m.deadline ? daysUntil(m.deadline, new Date()) : null;
+  const waiting = waitingFor(m.status, m.status_since, Date.now() / 1000);
 
   return (
     <li className={open ? "ledger-row open" : "ledger-row"}>
@@ -86,6 +211,7 @@ function LedgerRow(props: {
         <span className="ledger-status">
           <StatusMark status={m.status} />
           {m.status_since && <span className="since">since {formatTimestamp(m.status_since)}</span>}
+          {waiting && <span className="since">{waiting}</span>}
         </span>
         <span className="ledger-paper">
           <span className="ledger-journal">{m.journal}</span>
