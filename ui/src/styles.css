@@ -539,6 +539,16 @@ button:disabled {
   color: var(--margin);
 }
 
+.ledger-title {
+  font-size: var(--t-small);
+  color: var(--margin);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+
 .pending-note {
   font-size: var(--t-small);
   color: var(--pencil);

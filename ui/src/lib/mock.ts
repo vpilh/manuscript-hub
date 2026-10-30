@@ -64,7 +64,7 @@ let manuscripts: ManuscriptSummary[] = [
     id: 1,
     journal: "Journal of Synthetic Studies",
     external_id: "JSS-2026-0142",
-    title: null,
+    title: "Invented Methods for Example Data",
     status: "under_review",
     status_since: now - 40 * DAY,
     deadline: null,
@@ -271,7 +271,7 @@ function withPendingCounts(): ManuscriptSummary[] {
 }
 
 export const mockApi: Api = {
-  appInfo: () => wait({ version: "0.1.0", parser_version: "seed-0.5", storage_error: null }),
+  appInfo: () => wait({ version: "0.1.0", parser_version: "seed-0.6", storage_error: null }),
   scanDemoMailbox: () =>
     wait({ messages: 6, proposed: 0, already_seen: 5, not_journal_mail: 1 }),
   reviewQueue: () => wait(structuredClone(queue)),

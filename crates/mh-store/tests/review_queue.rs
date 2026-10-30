@@ -632,3 +632,91 @@ fn proposals_cannot_be_amended_outside_review() {
     assert!(store.remove_event(pending).is_err());
     assert_eq!(store.review_queue().unwrap().len(), 1);
 }
+
+#[test]
+fn a_revision_id_belongs_to_the_original_manuscript() {
+    let (mut store, account) = setup();
+    let first = record(
+        &mut store,
+        account,
+        &proposal(
+            "m1",
+            T0,
+            Some("Journal of Banking and Finance"),
+            Some("JBF-D-26-01235"),
+            Some(EditorialStatus::RevisionRequired),
+            None,
+        ),
+    );
+    store.review(first, confirm()).unwrap();
+    let manuscript = store.manuscripts().unwrap()[0].id;
+
+    for (message, id) in [("m2", "JBF-D-26-01235R1"), ("m3", "JBF-D-26-01235.R2")] {
+        record(
+            &mut store,
+            account,
+            &proposal(
+                message,
+                T0 + DAY,
+                Some("Journal of Banking and Finance"),
+                Some(id),
+                Some(EditorialStatus::Revised),
+                None,
+            ),
+        );
+    }
+    let queue = store.review_queue().unwrap();
+    assert_eq!(queue.len(), 2);
+    for item in &queue {
+        assert_eq!(item.match_kind, MatchKind::ExactId);
+        assert_eq!(item.suggested_manuscript.as_ref().unwrap().id, manuscript);
+    }
+}
+
+#[test]
+fn a_confirmed_update_fills_in_a_missing_title_but_never_replaces_one() {
+    let (mut store, account) = setup();
+    let titled = |message: &str, title: &str| {
+        let mut p = proposal(
+            message,
+            T0,
+            JSS,
+            Some("JSS-1"),
+            Some(EditorialStatus::Submitted),
+            None,
+        );
+        p.title = field(title.to_string());
+        p
+    };
+    let first = record(
+        &mut store,
+        account,
+        &proposal(
+            "m0",
+            T0,
+            JSS,
+            Some("JSS-1"),
+            Some(EditorialStatus::Submitted),
+            None,
+        ),
+    );
+    store.review(first, confirm()).unwrap();
+    assert_eq!(store.manuscripts().unwrap()[0].title, None);
+
+    let second = record(
+        &mut store,
+        account,
+        &titled("m1", "Invented Methods for Example Data"),
+    );
+    store.review(second, confirm()).unwrap();
+    let third = record(
+        &mut store,
+        account,
+        &titled("m2", "Something Else Entirely"),
+    );
+    store.review(third, confirm()).unwrap();
+    assert_eq!(
+        store.manuscripts().unwrap()[0].title.as_deref(),
+        Some("Invented Methods for Example Data")
+    );
+}

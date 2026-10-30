@@ -126,6 +126,13 @@ function Proposal(props: {
         <dt>Manuscript</dt>
         <dd className="figures">{manuscript_id?.value ?? "No ID in the message"}</dd>
 
+        {proposal.title && (
+          <>
+            <dt>Title</dt>
+            <dd>{proposal.title.value}</dd>
+          </>
+        )}
+
         {deadline && days !== null && (
           <>
             <dt>Due</dt>

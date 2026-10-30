@@ -25,6 +25,15 @@ const DEMO_MAILBOX: &[&str] = &[
     include_str!("../../fixtures/synthetic/multiple-manuscripts.eml"),
     include_str!("../../fixtures/synthetic/reply-quoting-old-decision.eml"),
     include_str!("../../fixtures/synthetic/publisher-newsletter.eml"),
+    include_str!("../../fixtures/synthetic/em-submission-confirmation.eml"),
+    include_str!("../../fixtures/synthetic/em-pdf-approval.eml"),
+    include_str!("../../fixtures/synthetic/em-revision-received.eml"),
+    include_str!("../../fixtures/synthetic/scholarone-minor-revision.eml"),
+    include_str!("../../fixtures/synthetic/tracker-under-review.eml"),
+    include_str!("../../fixtures/synthetic/annals-accepted.eml"),
+    include_str!("../../fixtures/synthetic/redaktion-abgelehnt-de.eml"),
+    include_str!("../../fixtures/synthetic/shop-order.eml"),
+    include_str!("../../fixtures/synthetic/ticket-review-request.eml"),
 ];
 const DEMO_ACCOUNT: &str = "Demo mailbox";
 const DATABASE_FILE: &str = "manuscript-hub.db";

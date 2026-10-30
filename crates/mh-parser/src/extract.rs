@@ -3,11 +3,12 @@ use mh_core::{
 };
 
 use crate::{
-    detect_status, find_dates, find_manuscript_ids, find_relative_deadline_days, strip_quoted,
+    detect_status, find_dates, find_manuscript_ids, find_relative_deadline_days, find_title,
+    strip_quoted,
 };
 
 /// Recorded on every proposal for provenance (PRD §6).
-pub const PARSER_VERSION: &str = "seed-0.5";
+pub const PARSER_VERSION: &str = "seed-0.6";
 
 const DEADLINE_CUES: &[&str] = &[
     "due",
@@ -335,7 +336,7 @@ pub fn extract(message: &TransientMessage, rules: &CandidateRules) -> Option<Pro
         source: message.source.clone(),
         journal: find_journal(&message.from, &searchable),
         manuscript_id,
-        title: None,
+        title: find_title(&body).map(|t| field(t.clone(), t, 0.7)),
         status,
         deadline,
         requested_action,
