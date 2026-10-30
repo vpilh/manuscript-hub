@@ -10,6 +10,7 @@ mod crypto;
 mod error;
 mod matching;
 mod merge;
+mod reminders;
 mod review;
 mod sender_rules;
 mod store;
@@ -18,6 +19,7 @@ pub use accounts::AccountSummary;
 pub use crypto::DbKey;
 pub use error::StoreError;
 pub use matching::{normalize_title, title_similarity, TITLE_MATCH_THRESHOLD};
+pub use reminders::{Reminder, ReminderStage};
 pub use review::{
     EventEdits, ManuscriptRef, ManuscriptSummary, MatchKind, QueueItem, RecordOutcome,
     ReviewDecision, TimelineEntry,
@@ -31,6 +33,10 @@ pub const MIGRATIONS: &[(&str, &str)] = &[
     (
         "0002_sender_rules",
         include_str!("../migrations/0002_sender_rules.sql"),
+    ),
+    (
+        "0003_reminders",
+        include_str!("../migrations/0003_reminders.sql"),
     ),
 ];
 

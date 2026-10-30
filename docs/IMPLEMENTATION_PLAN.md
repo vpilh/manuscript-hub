@@ -55,7 +55,7 @@ Each work package (WP) is done when its *Done when* evidence is merged and passe
 | 1.6 | Mock provider and integrity harness: synthetic corpus (≥10 journal families, English and German, newsletters, phishing look-alikes, multi-paper messages); a recording fake for each provider API that fails on any mutating call | FR06, FR22 | `cargo test` exercises full scans on mocks with zero mutating calls recorded. |
 | 1.7 | UI: onboarding wizard (local storage, permissions, notifications), manuscript list, event timeline with source links, review queue, account health, manual entry and paste-email import | FR13, FR17 | Every PRD journey can be clicked through on mock data. |
 | 1.8 | Data control: CSV/JSON export, re-import, encrypted backup/restore, local-data deletion; importer for the hosted MVP's D1 export | FR16 | Export → wipe → import round-trips. A D1 sample export imports cleanly (needs a sample, see §7). |
-| 1.9 | Lifecycle: tray, sync indicator, pause/resume/quit, opt-in autostart, desktop notifications (review requests, decisions, approaching deadlines) | FR14, FR21 | Manual test checklist on Windows, macOS and Linux. Autostart is off by default. |
+| 1.9 | Lifecycle: tray, sync indicator, pause/resume/quit, opt-in autostart, desktop notifications (review requests, decisions, approaching deadlines) | FR14, FR21 | Manual test checklist on Windows, macOS and Linux. Autostart is off by default. **Partly done**: tray icon (open, check now, pause/resume, quit; closing the window keeps the app in the tray), notifications for new proposals after automatic checks and for deadlines (a week before, a day before, overdue; each once, recorded in `reminders_sent`). Autostart and the manual checklist are open. |
 
 ### Phase 2: IMAP — GroupWise and Gmail
 

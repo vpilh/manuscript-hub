@@ -3,7 +3,10 @@
 
 mod keychain;
 mod mail;
+mod notify;
+mod tray;
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use mh_connectors::{mock::MockProvider, MailProvider};
@@ -14,7 +17,7 @@ use mh_store::{
     SenderRuleKind, Store, StoreError, TimelineEntry,
 };
 use serde::Serialize;
-use tauri::{Manager, State};
+use tauri::{Manager, State, WindowEvent};
 
 /// Synthetic mailbox compiled into the binary, so a fresh build runs without
 /// any mailbox credentials (FR22).
@@ -37,6 +40,9 @@ const DEMO_MAILBOX: &[&str] = &[
 ];
 const DEMO_ACCOUNT: &str = "Demo mailbox";
 const DATABASE_FILE: &str = "manuscript-hub.db";
+
+/// The "still running in the tray" notice is shown once per run.
+static CLOSE_HINT_SHOWN: AtomicBool = AtomicBool::new(false);
 
 /// The open database, or why it could not be opened (shown in the UI).
 struct AppState(Result<Arc<Mutex<Store>>, String>);
@@ -209,12 +215,30 @@ fn open_store(app: &tauri::App) -> Result<Store, String> {
 
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             let store = open_store(app).map(|store| Arc::new(Mutex::new(store)));
             app.manage(AppState(store));
             app.manage(mail::Checks::default());
             mail::start_background_checks(app.handle().clone());
+            // Without a tray (some Linux desktops), closing the window quits.
+            if let Err(e) = tray::create(app.handle()) {
+                eprintln!("tray icon unavailable: {e}");
+            }
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            // With a tray icon, closing the window keeps checks running.
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                let app = window.app_handle();
+                if app.try_state::<tray::PauseItem>().is_some() {
+                    api.prevent_close();
+                    let _ = window.hide();
+                    if !CLOSE_HINT_SHOWN.swap(true, Ordering::Relaxed) {
+                        notify::still_running(app);
+                    }
+                }
+            }
         })
         .invoke_handler(tauri::generate_handler![
             app_info,
@@ -229,6 +253,8 @@ fn main() {
             mail::disconnect_mail_account,
             mail::sync_mail_account,
             mail::set_check_interval,
+            mail::checks_paused,
+            mail::set_checks_paused,
             amend_event,
             remove_event,
             sender_rules,

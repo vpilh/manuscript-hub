@@ -216,6 +216,8 @@ const timelines: Record<number, TimelineEntry[]> = {
 
 let accounts: MailAccount[] = [];
 let senderRules: SenderRule[] = [];
+let paused = false;
+const pausedListeners = new Set<(paused: boolean) => void>();
 
 const matchesDomain = (domain: string | null, rule: string) =>
   !!domain && (domain === rule || domain.endsWith(`.${rule}`));
@@ -352,6 +354,16 @@ export const mockApi: Api = {
   removeSenderRule: async (domain) => {
     senderRules = senderRules.filter((r) => r.domain !== domain);
     await wait(undefined);
+  },
+  checksPaused: () => wait(paused),
+  setChecksPaused: async (value) => {
+    paused = value;
+    pausedListeners.forEach((listener) => listener(value));
+    await wait(undefined);
+  },
+  onChecksPaused: async (handler) => {
+    pausedListeners.add(handler);
+    return () => pausedListeners.delete(handler);
   },
   // The browser preview has no scheduler, so there are no events to deliver.
   onMailCheck: async () => () => {},

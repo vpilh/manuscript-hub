@@ -167,6 +167,15 @@ code {
   gap: var(--space-3);
 }
 
+.checks-state {
+  font-size: var(--t-small);
+  color: var(--margin);
+}
+
+.checks-state .link {
+  min-height: 24px;
+}
+
 .privacy {
   display: flex;
   gap: var(--space-2);

@@ -17,6 +17,7 @@ mh-parser.workspace = true
 mh-connectors.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["tray-icon"] }
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
 mh-store.workspace = true
+tauri-plugin-notification = "2"

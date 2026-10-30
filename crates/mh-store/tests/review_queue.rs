@@ -5,8 +5,8 @@ use mh_core::{
     SourceRef,
 };
 use mh_store::{
-    DbKey, EventEdits, MatchKind, RecordOutcome, ReviewDecision, SenderRule, SenderRuleKind, Store,
-    StoreError,
+    DbKey, EventEdits, MatchKind, RecordOutcome, ReminderStage, ReviewDecision, SenderRule,
+    SenderRuleKind, Store, StoreError,
 };
 
 const DAY: i64 = 86_400;
@@ -783,4 +783,43 @@ fn an_ignore_rule_sets_aside_pending_mail_from_that_sender() {
     );
     store.remove_sender_rule("example.org").unwrap();
     assert!(store.sender_rules().unwrap().is_empty());
+}
+
+#[test]
+fn each_deadline_reminder_is_due_once_per_stage() {
+    let (mut store, account) = setup();
+    let event = record(
+        &mut store,
+        account,
+        &proposal(
+            "m1",
+            T0,
+            JSS,
+            Some("JSS-1"),
+            Some(EditorialStatus::RevisionRequired),
+            Some((2026, 11, 12)),
+        ),
+    );
+    store.review(event, confirm()).unwrap();
+    let day = |d: u8| CalendarDate::new(2026, 11, d).unwrap();
+
+    assert!(
+        store.due_reminders(day(1)).unwrap().is_empty(),
+        "11 days ahead"
+    );
+    let week = store.due_reminders(day(6)).unwrap();
+    assert_eq!(week.len(), 1);
+    assert_eq!(week[0].stage, ReminderStage::Week);
+    assert_eq!(week[0].days_left, 6);
+    store.mark_reminder_sent(&week[0]).unwrap();
+    assert!(
+        store.due_reminders(day(7)).unwrap().is_empty(),
+        "week reminder already shown"
+    );
+
+    let last_day = store.due_reminders(day(11)).unwrap();
+    assert_eq!(last_day[0].stage, ReminderStage::Day);
+    store.mark_reminder_sent(&last_day[0]).unwrap();
+    let overdue = store.due_reminders(day(13)).unwrap();
+    assert_eq!(overdue[0].stage, ReminderStage::Overdue);
 }
